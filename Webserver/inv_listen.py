@@ -19,7 +19,7 @@ def run_inventory():
     
     cmd = [
         "sllurp", "inventory", READER_IP,
-        "-p", str(PORT), "-a", "1", "-X", "20", "-t", "10",
+        "-p", str(PORT), "-a", "0", "-X", "20", "-t", "10",
         "--impinj-reports"
     ]
     
