@@ -7,7 +7,7 @@ import sys
 # Reader settings (matching CLI)
 READER_IP = "169.254.1.1"
 PORT = 14150
-CSV_FILE = "rfid_data.csv"  # Output CSV file name
+CSV_FILE_BASE = "rfid_data"  # Base name for the CSV file
 
 def get_user_input(prompt, default=None, type_cast=str, validator=None):
     """Helper function to get and validate user input."""
@@ -28,6 +28,10 @@ def run_inventory():
     # Get total runtime from user
     total_time = get_user_input("Total inventory duration (seconds)", 10, float, lambda x: x > 0)
     
+    # Generate timestamp for the filename (same as RunTimestamp but filesystem-friendly)
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    csv_file = f"{CSV_FILE_BASE}_{timestamp}.csv"  # e.g., rfid_data_2025-03-21T14-20-00.csv
+    
     # Interval per antenna (in seconds)
     interval_per_antenna = 0.25  # 250 milliseconds
     
@@ -35,7 +39,6 @@ def run_inventory():
     base_cmd = [
         "sllurp", "inventory", READER_IP,
         "-p", str(PORT), "-X", "0", "-t", str(interval_per_antenna),  # 0.25 seconds per antenna
-        "-P", "30",  # Tag population set to 30
         "--impinj-reports",
         "--impinj-search-mode", "2"  # Dual target mode
     ]
@@ -44,6 +47,7 @@ def run_inventory():
     antennas = [1, 2, 3, 4]
     total_rows = 0  # Count total rows written to CSV
     time_elapsed = 0  # Track total time elapsed
+    all_reads = []  # Accumulate all reads here
     
     print("Reading...", end="", flush=True)
     
@@ -84,57 +88,45 @@ def run_inventory():
                     reads_for_antenna = sum(tag.get('TagSeenCount', 0) for tag in all_tags)
                     print(f"\rReading... (Antenna {antenna}: {tags_seen} tags, {reads_for_antenna} reads)", end="", flush=True)
                     
-                    # Save results to CSV
-                    with open(CSV_FILE, 'a', newline='') as csvfile:
-                        fieldnames = [
-                            'RunTimestamp', 'Timestamp', 'EPC', 'Antenna', 'RSSI',
-                            'PhaseAngle', 'Frequency', 'DopplerFrequency'
-                        ]
-                        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    # Process each tag and accumulate reads
+                    run_timestamp = datetime.now().isoformat()  # Timestamp of this run
+                    for tag in all_tags:
+                        epc = tag.get('EPC', 'Unknown')
+                        if isinstance(epc, bytes):  # Convert bytes to hex string
+                            epc = epc.hex()
+                        rssi = tag.get('ImpinjPeakRSSI', 'Unknown')
+                        if rssi != 'Unknown':
+                            rssi = f"{rssi / 100:.2f}"
+                        phase_angle = tag.get('ImpinjRFPhaseAngle', 'Unknown')
+                        if phase_angle != 'Unknown':
+                            phase_angle = f"{phase_angle / 100:.2f}"
+                        frequency = tag.get('ChannelIndex', 'Unknown')
+                        doppler_frequency = tag.get('ImpinjRFDopplerFrequency', 'Unknown')
+                        if doppler_frequency != 'Unknown':
+                            doppler_frequency = f"{doppler_frequency / 100:.2f}"
+                        timestamp = tag.get('LastSeenTimestampUTC', 'Unknown')
+                        read_count = tag.get('TagSeenCount', 0)
                         
-                        # Write header if file is empty/new
-                        if csvfile.tell() == 0:
-                            writer.writeheader()
-                        
-                        # Process each tag
-                        run_timestamp = datetime.now().isoformat()  # Timestamp of this run
-                        for tag in all_tags:
-                            epc = tag.get('EPC', 'Unknown')
-                            if isinstance(epc, bytes):  # Convert bytes to hex string
-                                epc = epc.hex()
-                            rssi = tag.get('ImpinjPeakRSSI', 'Unknown')
-                            if rssi != 'Unknown':
-                                rssi = f"{rssi / 100:.2f}"
-                            phase_angle = tag.get('ImpinjRFPhaseAngle', 'Unknown')
-                            if phase_angle != 'Unknown':
-                                phase_angle = f"{phase_angle / 100:.2f}"
-                            frequency = tag.get('ChannelIndex', 'Unknown')
-                            doppler_frequency = tag.get('ImpinjRFDopplerFrequency', 'Unknown')
-                            if doppler_frequency != 'Unknown':
-                                doppler_frequency = f"{doppler_frequency / 100:.2f}"
-                            timestamp = tag.get('LastSeenTimestampUTC', 'Unknown')
-                            read_count = tag.get('TagSeenCount', 0)
-                            
-                            # Write a row for each individual read
-                            for _ in range(read_count):
-                                writer.writerow({
-                                    'RunTimestamp': run_timestamp,
-                                    'Timestamp': timestamp,
-                                    'EPC': epc,
-                                    'Antenna': str(antenna),  # Use the active antenna port
-                                    'RSSI': rssi,
-                                    'PhaseAngle': phase_angle,
-                                    'Frequency': frequency,
-                                    'DopplerFrequency': doppler_frequency
-                                })
-                                total_rows += 1
+                        # Add each read to the list
+                        for _ in range(read_count):
+                            all_reads.append({
+                                'RunTimestamp': run_timestamp,
+                                'Timestamp': timestamp,
+                                'EPC': epc,
+                                'Antenna': str(antenna),  # Use the active antenna port
+                                'RSSI': rssi,
+                                'PhaseAngle': phase_angle,
+                                'Frequency': frequency,
+                                'DopplerFrequency': doppler_frequency
+                            })
+                            total_rows += 1
                 
                 except subprocess.TimeoutExpired as e:
                     output = e.stdout
-                    if output is not None:
-                        output = output.decode('utf-8')  # Convert bytes to string
-                    else:
+                    if output is None:
                         output = ""
+                    else:
+                        output = output.decode('utf-8')  # Convert bytes to string
                     
                     # Parse tags from output
                     all_tags = []
@@ -150,47 +142,37 @@ def run_inventory():
                     reads_for_antenna = sum(tag.get('TagSeenCount', 0) for tag in all_tags)
                     print(f"\rReading... (Antenna {antenna}: {tags_seen} tags, {reads_for_antenna} reads)", end="", flush=True)
                     
-                    # Save results to CSV
-                    with open(CSV_FILE, 'a', newline='') as csvfile:
-                        fieldnames = [
-                            'RunTimestamp', 'Timestamp', 'EPC', 'Antenna', 'RSSI',
-                            'PhaseAngle', 'Frequency', 'DopplerFrequency'
-                        ]
-                        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    # Process each tag and accumulate reads
+                    run_timestamp = datetime.now().isoformat()
+                    for tag in all_tags:
+                        epc = tag.get('EPC', 'Unknown')
+                        if isinstance(epc, bytes):
+                            epc = epc.hex()
+                        rssi = tag.get('ImpinjPeakRSSI', 'Unknown')
+                        if rssi != 'Unknown':
+                            rssi = f"{rssi / 100:.2f}"
+                        phase_angle = tag.get('ImpinjRFPhaseAngle', 'Unknown')
+                        if phase_angle != 'Unknown':
+                            phase_angle = f"{phase_angle / 100:.2f}"
+                        frequency = tag.get('ChannelIndex', 'Unknown')
+                        doppler_frequency = tag.get('ImpinjRFDopplerFrequency', 'Unknown')
+                        if doppler_frequency != 'Unknown':
+                            doppler_frequency = f"{doppler_frequency / 100:.2f}"
+                        timestamp = tag.get('LastSeenTimestampUTC', 'Unknown')
+                        read_count = tag.get('TagSeenCount', 0)
                         
-                        if csvfile.tell() == 0:
-                            writer.writeheader()
-                        
-                        run_timestamp = datetime.now().isoformat()
-                        for tag in all_tags:
-                            epc = tag.get('EPC', 'Unknown')
-                            if isinstance(epc, bytes):
-                                epc = epc.hex()
-                            rssi = tag.get('ImpinjPeakRSSI', 'Unknown')
-                            if rssi != 'Unknown':
-                                rssi = f"{rssi / 100:.2f}"
-                            phase_angle = tag.get('ImpinjRFPhaseAngle', 'Unknown')
-                            if phase_angle != 'Unknown':
-                                phase_angle = f"{phase_angle / 100:.2f}"
-                            frequency = tag.get('ChannelIndex', 'Unknown')
-                            doppler_frequency = tag.get('ImpinjRFDopplerFrequency', 'Unknown')
-                            if doppler_frequency != 'Unknown':
-                                doppler_frequency = f"{doppler_frequency / 100:.2f}"
-                            timestamp = tag.get('LastSeenTimestampUTC', 'Unknown')
-                            read_count = tag.get('TagSeenCount', 0)
-                            
-                            for _ in range(read_count):
-                                writer.writerow({
-                                    'RunTimestamp': run_timestamp,
-                                    'Timestamp': timestamp,
-                                    'EPC': epc,
-                                    'Antenna': str(antenna),  # Use the active antenna port
-                                    'RSSI': rssi,
-                                    'PhaseAngle': phase_angle,
-                                    'Frequency': frequency,
-                                    'DopplerFrequency': doppler_frequency
-                                })
-                                total_rows += 1
+                        for _ in range(read_count):
+                            all_reads.append({
+                                'RunTimestamp': run_timestamp,
+                                'Timestamp': timestamp,
+                                'EPC': epc,
+                                'Antenna': str(antenna),  # Use the active antenna port
+                                'RSSI': rssi,
+                                'PhaseAngle': phase_angle,
+                                'Frequency': frequency,
+                                'DopplerFrequency': doppler_frequency
+                            })
+                            total_rows += 1
                 
                 except subprocess.CalledProcessError as e:
                     print("\r" + " " * 40 + "\r", end="", flush=True)
@@ -201,7 +183,19 @@ def run_inventory():
         
         # Clear "Reading..." message
         print("\r" + " " * 40 + "\r", end="", flush=True)
-        print(f"Inventory completed successfully. {total_rows} reads saved to {CSV_FILE}")
+        
+        # Write all accumulated reads to CSV at the end
+        with open(csv_file, 'w', newline='') as csvfile:
+            fieldnames = [
+                'RunTimestamp', 'Timestamp', 'EPC', 'Antenna', 'RSSI',
+                'PhaseAngle', 'Frequency', 'DopplerFrequency'
+            ]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for read in all_reads:
+                writer.writerow(read)
+        
+        print(f"Inventory completed successfully. {total_rows} reads saved to {csv_file}")
     
     except Exception as e:
         print("\r" + " " * 40 + "\r", end="", flush=True)
