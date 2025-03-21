@@ -7,7 +7,7 @@ import sys
 # Reader settings (matching CLI)
 READER_IP = "169.254.1.1"
 PORT = 14150
-CSV_FILE_BASE = "rfid_data" 
+CSV_FILE_BASE = "rfid_data"  # Base name for the CSV file
 
 def get_user_input(prompt, default=None, type_cast=str, validator=None):
     """Helper function to get and validate user input."""
