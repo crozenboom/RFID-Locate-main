@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request # type: ignore
 import uvicorn # type: ignore
-from sllurp.llrp import LLRPReaderClient
+from sllurp.llrp import LLRPReaderClient # type: ignore
 import asyncio
 from contextlib import asynccontextmanager
 import logging
