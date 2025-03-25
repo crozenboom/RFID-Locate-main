@@ -23,8 +23,32 @@ def get_user_input(prompt, default=None, type_cast=str, validator=None):
             return value
         except ValueError:
             print(f"Invalid input: {user_input}. Please enter a valid {type_cast.__name__}.")
-
+def check_reader_connection():
+    """Check if the reader is connected using a simple sllurp status command."""
+    cmd = ["sllurp", "status", READER_IP, "-p", str(PORT)]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5  # 5-second timeout for the connection check
+        )
+        print("Connection successful")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error: Failed to connect to reader at Details: {e}\n{e.stderr}")
+        return False
+    except subprocess.TimeoutExpired:
+        print(f"Error: Connection to reader... timed out after 5 seconds.")
+        return False
+    
 def run_inventory():
+    # Check reader connection before proceeding
+    if not check_reader_connection():
+        print("Exiting due to connection failure.")
+        sys.exit(1)
+        
     # Get total runtime from user
     total_time = get_user_input("Total inventory duration (seconds)", 10, float, lambda x: x > 0)
     
@@ -39,8 +63,7 @@ def run_inventory():
     base_cmd = [
         "sllurp", "inventory", READER_IP,
         "-p", str(PORT), "-X", "0", "-t", str(interval_per_antenna),  # 0.25 seconds per antenna
-        "--impinj-reports",
-        "--impinj-search-mode", "2"  # Dual target mode
+        "--impinj-reports"
     ]
     
     # Antennas to cycle through (Impinj R420 has 4 ports)
