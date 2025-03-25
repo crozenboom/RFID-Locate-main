@@ -1,8 +1,9 @@
 import subprocess
 import re
 import csv
-from datetime import datetime
+from datetime import datetime, time
 import sys
+import socket
 
 # Reader settings (matching CLI)
 READER_IP = "169.254.1.1"
@@ -24,7 +25,38 @@ def get_user_input(prompt, default=None, type_cast=str, validator=None):
         except ValueError:
             print(f"Invalid input: {user_input}. Please enter a valid {type_cast.__name__}.")
 
+def check_reader_connection(max_retries=3, retry_delay=2, timeout=5):
+    """Check if the reader is connected by attempting a socket connection to the LLRP port."""
+    for attempt in range(1, max_retries + 1):
+        print(f"Attempting to connect to reader at {READER_IP}:{PORT} (Attempt {attempt}/{max_retries})...")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            sock.connect((READER_IP, PORT))
+            print("Connection successful: Reader at", READER_IP, "is reachable on port", PORT)
+            return True
+        except socket.timeout:
+            print(f"Connection attempt timed out after {timeout} seconds.")
+            if attempt < max_retries:
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+        except socket.error as e:
+            print(f"Connection attempt failed. Details: {e}")
+            if attempt < max_retries:
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+        finally:
+            sock.close()
+    
+    print(f"Error: Failed to connect to reader at {READER_IP}:{PORT} after {max_retries} attempts.")
+    return False        
+    
 def run_inventory():
+    # Check reader connection before proceeding
+    if not check_reader_connection():
+        print("Exiting due to connection failure.")
+        sys.exit(1)
+
     # Get total runtime from user
     total_time = get_user_input("Total inventory duration (seconds)", 10, float, lambda x: x > 0)
     
@@ -39,8 +71,7 @@ def run_inventory():
     base_cmd = [
         "sllurp", "inventory", READER_IP,
         "-p", str(PORT), "-X", "0", "-t", str(interval_per_antenna),  # 0.25 seconds per antenna
-        "--impinj-reports",
-        "--impinj-search-mode", "2"  # Dual target mode
+        "--impinj-reports"
     ]
     
     # Antennas to cycle through (Impinj R420 has 4 ports)
