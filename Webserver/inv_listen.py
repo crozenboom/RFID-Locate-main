@@ -70,7 +70,7 @@ def run_inventory():
     # Base command (without antenna specification)
     base_cmd = [
         "sllurp", "inventory", READER_IP,
-        "-p", str(PORT), "-X", "20", "-t", str(interval_per_antenna),  # 0.25 seconds per antenna
+        "-p", str(PORT), "-X", "25", "-t", str(interval_per_antenna),  # 0.25 seconds per antenna
         "--impinj-reports"
     ]
     
