@@ -144,7 +144,7 @@ def run_inventory():
                                 'RunTimestamp': run_timestamp,
                                 'Timestamp': timestamp,
                                 'EPC': epc,
-                                'Antenna': str(antenna),  # Use the active antenna port
+                                'AntennaPort': str(antenna),  # Use the active antenna port
                                 'RSSI': rssi,
                                 'PhaseAngle': phase_angle,
                                 'Frequency': frequency,
@@ -197,7 +197,7 @@ def run_inventory():
                                 'RunTimestamp': run_timestamp,
                                 'Timestamp': timestamp,
                                 'EPC': epc,
-                                'Antenna': str(antenna),  # Use the active antenna port
+                                'AntennaPort': str(antenna),  # Use the active antenna port
                                 'RSSI': rssi,
                                 'PhaseAngle': phase_angle,
                                 'Frequency': frequency,
@@ -218,7 +218,7 @@ def run_inventory():
         # Write all accumulated reads to CSV at the end
         with open(csv_file, 'w', newline='') as csvfile:
             fieldnames = [
-                'RunTimestamp', 'Timestamp', 'EPC', 'Antenna', 'RSSI',
+                'RunTimestamp', 'Timestamp', 'EPC', 'AntennaPort', 'RSSI',
                 'PhaseAngle', 'Frequency', 'DopplerFrequency'
             ]
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
