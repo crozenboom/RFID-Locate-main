@@ -37,20 +37,43 @@ def check_reader_connection(max_retries=3, retry_delay=2, timeout=5):
     print(f"Error: Failed to connect to reader at {READER_IP}:{PORT} after {max_retries} attempts.")
     return False
 
+def get_user_input(prompt, default=None, type_cast=float, validator=None):
+    """Helper function to get and validate user input."""
+    while True:
+        user_input = input(f"{prompt} [{'Enter to use default' if default is None else default}]: ").strip()
+        if not user_input and default is not None:  # If user presses Enter, use default
+            return default
+        try:
+            value = type_cast(user_input)
+            if validator and not validator(value):
+                print(f"Invalid input: {user_input}. Please enter a positive number.")
+                continue
+            return value
+        except ValueError:
+            print(f"Invalid input: {user_input}. Please enter a valid {type_cast.__name__}.")
+
 def run_inventory():
     # Check reader connection before proceeding
     if not check_reader_connection():
         print("Exiting due to connection failure.")
         sys.exit(1)
 
+    # Get inventory duration from user
+    inventory_duration = get_user_input(
+        "Enter inventory duration in seconds",
+        default=5.0,  # Default to 5 seconds
+        type_cast=float,
+        validator=lambda x: x > 0  # Ensure the duration is positive
+    )
+    
     # Generate timestamp for the filename
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     csv_file = f"{CSV_FILE_BASE}_{timestamp}.csv"  # e.g., rfid_data_2025-03-26T12-32-12.csv
     
-    # Command to run (matching the manual command, with added -P 30)
+    # Command to run (with user-specified duration)
     cmd = [
         "sllurp", "inventory", READER_IP,
-        "-p", str(PORT), "-a", "0", "-t", "5",  # All antennas, 5 seconds
+        "-p", str(PORT), "-a", "0", "-t", str(inventory_duration),  # Use user-specified duration
         "-X", "0", "-P", "30", "--impinj-reports"
     ]
     
@@ -58,7 +81,7 @@ def run_inventory():
     all_reads = []  # Accumulate all reads here
     
     # Print the command for debugging
-    print(f"Running sllurp inventory command: {' '.join(cmd)}")
+    print(f"Running...")
     
     try:
         # Run the sllurp inventory command
@@ -67,14 +90,14 @@ def run_inventory():
             capture_output=True,
             text=True,
             check=True,
-            timeout=15  # 5s inventory + 10s buffer
+            timeout=inventory_duration + 10  # Inventory duration + 10s buffer
         )
         output = result.stdout
         
     except subprocess.TimeoutExpired as e:
         # Decode the bytes-like partial output to a string
         output = e.stdout.decode('utf-8') if e.stdout is not None else ""
-        print(f"Command timed out after {e.timeout} seconds. Processing partial output...")
+        print(f"Command timed out after {e.timeout} seconds.")
     
     except subprocess.CalledProcessError as e:
         print(f"Failed to run inventory: {e}\n{e.stderr}")
