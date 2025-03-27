@@ -81,7 +81,6 @@ def run_inventory():
     all_reads = []  # Accumulate all reads here
     
     print("Reading...", end="", flush=True)
-    
     try:
         while time_elapsed < total_time:
             for antenna in antennas:
@@ -204,7 +203,7 @@ def run_inventory():
                                 'DopplerFrequency': doppler_frequency
                             })
                             total_rows += 1
-                
+                    
                 except subprocess.CalledProcessError as e:
                     print("\r" + " " * 40 + "\r", end="", flush=True)
                     print(f"Failed to run inventory on antenna {antenna}: {e}\n{e.stderr}")
