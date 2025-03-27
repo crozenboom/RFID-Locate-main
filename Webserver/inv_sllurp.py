@@ -150,7 +150,7 @@ def run_inventory():
                                 'DopplerFrequency': doppler_frequency
                             })
                             total_rows += 1
-                
+
                 except subprocess.TimeoutExpired as e:
                     output = e.stdout
                     if output is None:
@@ -166,7 +166,7 @@ def run_inventory():
                         tag_dict = eval(tag_str, {"__builtins__": {}}, {})
                         if isinstance(tag_dict, list):
                             all_tags.extend(tag_dict)
-                    
+
                     # Log number of tags seen for this antenna
                     tags_seen = len(all_tags)
                     reads_for_antenna = sum(tag.get('TagSeenCount', 0) for tag in all_tags)
