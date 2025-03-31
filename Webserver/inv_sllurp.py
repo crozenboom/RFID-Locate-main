@@ -6,8 +6,8 @@ import sys
 import socket
 
 # Reader settings (matching CLI)
-READER_IP = "169.254.1.1"
-PORT = 14150
+READER_IP = "192.168.0.219"
+PORT = 5084
 CSV_FILE_BASE = "rfid_data"  # Base name for the CSV file
 
 def get_user_input(prompt, default=None, type_cast=str, validator=None):
@@ -94,13 +94,13 @@ def run_inventory():
                 print(f"\rReading... (Antenna {antenna})", end="", flush=True)
                 
                 try:
-                    # Run CLI command with timeout (0.25s inventory + 0.25s buffer)
+                    # Run CLI command with timeout (0.25s inventory)
                     result = subprocess.run(
                         cmd,
                         capture_output=True,
                         text=True,
                         check=True,
-                        timeout=interval_per_antenna + 0.25
+                        timeout=interval_per_antenna + 5
                     )
                     output = result.stdout
                     

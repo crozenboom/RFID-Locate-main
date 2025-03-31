@@ -1,13 +1,20 @@
-import subprocess
-import re
+import sllurp.llrp as llrp
+from sllurp.llrp import LLRPReaderClient
 import csv
 import time
 from datetime import datetime
 import socket
+import sys
+import re
+import logging
+
+# Set up logging for debugging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Reader settings
-READER_IP = "169.254.1.1"
-PORT = 14150
+READER_IP = "192.168.0.219"
+PORT = 5084
 CSV_FILE_BASE = "rfid_data"
 
 def check_reader_connection(max_retries=3, retry_delay=2, timeout=10):
@@ -58,17 +65,64 @@ def get_epc_filter():
         if not user_input:
             print("Please enter at least one EPC or 'all'.")
             continue
-        # Split the input by commas and strip whitespace
         epcs = [epc.strip() for epc in user_input.split(',')]
-        # Validate EPC format (hexadecimal string)
         for epc in epcs:
             if not re.match(r'^[0-9a-fA-F]+$', epc):
                 print(f"Invalid EPC format: {epc}. EPCs must be hexadecimal strings (e.g., 30340212e43c789b0223addd).")
                 break
         else:
-            return epcs  # Return the list of EPCs if all are valid
+            return epcs
+
+class TagReportHandler:
+    def __init__(self, epc_filter, all_reads, total_rows):
+        self.epc_filter = epc_filter
+        self.all_reads = all_reads
+        self.total_rows = total_rows
+
+    def handle_tag_report(self, reader, tag_reports):
+        """Handle tag reports received from the reader."""
+        logger.debug(f"Received {len(tag_reports)} tag reports: {tag_reports}")
+        run_timestamp = datetime.now().isoformat()
+        for tag in tag_reports:
+            epc = tag.get('EPC', b'').hex() if isinstance(tag.get('EPC'), bytes) else tag.get('EPC', 'Unknown')
+            
+            # Apply EPC filter
+            if self.epc_filter and epc != 'Unknown' and epc not in self.epc_filter:
+                continue
+
+            antenna = tag.get('AntennaID', 'Unknown')
+            rssi = tag.get('PeakRSSI', 'Unknown')
+            if rssi != 'Unknown':
+                rssi = f"{rssi:.2f}" if isinstance(rssi, (int, float)) else rssi
+            phase_angle = tag.get('ImpinjRFPhaseAngle', 'Unknown')
+            if phase_angle != 'Unknown':
+                phase_angle = f"{phase_angle:.2f}" if isinstance(phase_angle, (int, float)) else phase_angle
+            frequency = tag.get('ChannelIndex', 'Unknown')
+            doppler_frequency = tag.get('RFDopplerFrequency', 'Unknown')
+            if doppler_frequency != 'Unknown':
+                doppler_frequency = f"{doppler_frequency:.2f}" if isinstance(doppler_frequency, (int, float)) else doppler_frequency
+            timestamp = tag.get('LastSeenTimestampUTC', 'Unknown')
+            read_count = tag.get('TagSeenCount', 1)
+
+            for _ in range(read_count):
+                self.all_reads.append({
+                    'RunTimestamp': run_timestamp,
+                    'Timestamp': timestamp,
+                    'EPC': epc,
+                    'Antenna': str(antenna),
+                    'RSSI': rssi,
+                    'PhaseAngle': phase_angle,
+                    'Frequency': frequency,
+                    'DopplerFrequency': doppler_frequency
+                })
+                self.total_rows[0] += 1
 
 def run_inventory():
+    # Check reader connection
+    if not check_reader_connection():
+        print("Exiting due to connection failure.")
+        sys.exit(1)
+
     # Get total runtime from user
     total_time = get_user_input()
     
@@ -79,20 +133,24 @@ def run_inventory():
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     csv_file = f"{CSV_FILE_BASE}_{timestamp}.csv"
     
-    # Interval per antenna (in seconds)
-    interval_per_antenna = 0.25  # 0.25 seconds per antenna
-    
-    # Base command (without antenna specification)
-    base_cmd = [
-        "sllurp", "inventory", READER_IP,
-        "-p", str(PORT), "-X", "0", "-t", str(interval_per_antenna),
-        "--impinj-reports"
-    ]
-    
-    # Antennas to cycle through (Impinj R420 has 4 ports: 1, 2, 3, 4)
+    # Antennas to use (Impinj R420 has 4 ports: 1, 2, 3, 4)
     antennas = [1, 2, 3, 4]
-    total_rows = 0  # Count total rows written to CSV
+    total_rows = [0]  # Use a list to allow modification in the handler
     all_reads = []  # Accumulate all reads here
+    
+    # Create a tag report handler
+    handler = TagReportHandler(epc_filter, all_reads, total_rows)
+    
+    # Connect to the reader, specifying all antennas
+    print("Connecting to reader...")
+    reader = LLRPReaderClient(READER_IP, PORT, antennas)
+    reader.add_tag_report_callback(handler.handle_tag_report)
+    
+    try:
+        reader.connect()
+    except Exception as e:
+        print(f"Failed to connect to reader: {e}")
+        sys.exit(1)
     
     # Start time for tracking total duration
     start_time = time.time()
@@ -100,135 +158,20 @@ def run_inventory():
     print("Reading...")
     
     # Run inventory for the specified total time
-    while (time.time() - start_time) < total_time:
-        cycle_start_time = time.time()  # Track start time of each cycle
-        
-        for antenna in antennas:
-            # Check if total time has been exceeded
-            if (time.time() - start_time) >= total_time:
-                break
-            
-            # Construct command for the current antenna
-            cmd = base_cmd.copy()
-            cmd.extend(["-a", str(antenna)])
-            
-            try:
-                # Run the sllurp command with increased timeout
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=interval_per_antenna + 0.75  # Increased to 1 second
-                )
-                output = result.stdout
-                
-                # Parse tags from output
-                all_tags = []
-                tag_pattern = re.compile(r"saw tag\(s\): (\[.*?\])", re.DOTALL)
-                for match in tag_pattern.finditer(output):
-                    tag_str = match.group(1)
-                    tag_dict = eval(tag_str, {"__builtins__": {}}, {})
-                    if isinstance(tag_dict, list):
-                        all_tags.extend(tag_dict)
-                
-                # Process each tag and accumulate reads
-                run_timestamp = datetime.now().isoformat()
-                for tag in all_tags:
-                    epc = tag.get('EPC', 'Unknown')
-                    if isinstance(epc, bytes):
-                        epc = epc.hex()
-                    
-                    # Apply EPC filter
-                    if epc_filter and epc != 'Unknown' and epc not in epc_filter:
-                        continue  # Skip this tag if it doesn't match the filter
-                    
-                    rssi = tag.get('ImpinjPeakRSSI', 'Unknown')
-                    if rssi != 'Unknown':
-                        rssi = f"{rssi / 100:.2f}"
-                    phase_angle = tag.get('ImpinjRFPhaseAngle', 'Unknown')
-                    if phase_angle != 'Unknown':
-                        phase_angle = f"{phase_angle / 100:.2f}"
-                    frequency = tag.get('ChannelIndex', 'Unknown')
-                    doppler_frequency = tag.get('ImpinjRFDopplerFrequency', 'Unknown')
-                    if doppler_frequency != 'Unknown':
-                        doppler_frequency = f"{doppler_frequency / 100:.2f}"
-                    timestamp = tag.get('LastSeenTimestampUTC', 'Unknown')
-                    read_count = tag.get('TagSeenCount', 0)
-                    
-                    for _ in range(read_count):
-                        all_reads.append({
-                            'RunTimestamp': run_timestamp,
-                            'Timestamp': timestamp,
-                            'EPC': epc,
-                            'Antenna': str(antenna),
-                            'RSSI': rssi,
-                            'PhaseAngle': phase_angle,
-                            'Frequency': frequency,
-                            'DopplerFrequency': doppler_frequency
-                        })
-                        total_rows += 1
-            
-            except subprocess.TimeoutExpired as e:
-                output = e.stdout if e.stdout else b""
-                output = output.decode('utf-8') if isinstance(output, bytes) else output
-                
-                all_tags = []
-                tag_pattern = re.compile(r"saw tag\(s\): (\[.*?\])", re.DOTALL)
-                for match in tag_pattern.finditer(output):
-                    tag_str = match.group(1)
-                    tag_dict = eval(tag_str, {"__builtins__": {}}, {})
-                    if isinstance(tag_dict, list):
-                        all_tags.extend(tag_dict)
-                
-                run_timestamp = datetime.now().isoformat()
-                for tag in all_tags:
-                    epc = tag.get('EPC', 'Unknown')
-                    if isinstance(epc, bytes):
-                        epc = epc.hex()
-                    
-                    # Apply EPC filter
-                    if epc_filter and epc != 'Unknown' and epc not in epc_filter:
-                        continue  # Skip this tag if it doesn't match the filter
-                    
-                    rssi = tag.get('ImpinjPeakRSSI', 'Unknown')
-                    if rssi != 'Unknown':
-                        rssi = f"{rssi / 100:.2f}"
-                    phase_angle = tag.get('ImpinjRFPhaseAngle', 'Unknown')
-                    if phase_angle != 'Unknown':
-                        phase_angle = f"{phase_angle / 100:.2f}"
-                    frequency = tag.get('ChannelIndex', 'Unknown')
-                    doppler_frequency = tag.get('ImpinjRFDopplerFrequency', 'Unknown')
-                    if doppler_frequency != 'Unknown':
-                        doppler_frequency = f"{doppler_frequency / 100:.2f}"
-                    timestamp = tag.get('LastSeenTimestampUTC', 'Unknown')
-                    read_count = tag.get('TagSeenCount', 0)
-                    
-                    for _ in range(read_count):
-                        all_reads.append({
-                            'RunTimestamp': run_timestamp,
-                            'Timestamp': timestamp,
-                            'EPC': epc,
-                            'Antenna': str(antenna),
-                            'RSSI': rssi,
-                            'PhaseAngle': phase_angle,
-                            'Frequency': frequency,
-                            'DopplerFrequency': doppler_frequency
-                        })
-                        total_rows += 1
-            
-            except subprocess.CalledProcessError as e:
-                print(f"Failed to run inventory: {e}\n{e.stderr}")
-                return
-            
-            time.sleep(0.1)  # Add small delay to avoid overwhelming the reader
-        
-        # Ensure the cycle takes exactly 1 second
-        cycle_time = time.time() - cycle_start_time
-        if cycle_time < 1.0:
-            time.sleep(1.0 - cycle_time)  # Sleep for the remaining time to make the cycle exactly 1 second
+    try:
+        reader.start_inventory()
+        time.sleep(total_time)  # Run inventory for the full duration
+        reader.stop_inventory()
     
-    # Write all accumulated reads to CSV after collection is complete
+    except Exception as e:
+        print(f"Error during inventory: {e}")
+    
+    finally:
+        # Cleanly disconnect from the reader
+        print("Disconnecting from reader...")
+        reader.disconnect()
+    
+    # Write all accumulated reads to CSV
     with open(csv_file, 'w', newline='') as csvfile:
         fieldnames = [
             'RunTimestamp', 'Timestamp', 'EPC', 'Antenna', 'RSSI',
@@ -239,7 +182,7 @@ def run_inventory():
         for read in all_reads:
             writer.writerow(read)
     
-    print(f"Success: {total_rows} reads written to {csv_file}")
+    print(f"Success: {total_rows[0]} reads written to {csv_file}")
 
 if __name__ == "__main__":
     run_inventory()
