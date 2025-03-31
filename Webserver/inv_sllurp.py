@@ -19,7 +19,7 @@ def get_user_input(prompt, default=None, type_cast=str, validator=None):
         try:
             value = type_cast(user_input)
             if validator and not validator(value):
-                print(f"Invalid input: {user_input}. Please try again.")
+                print(f"Invalid input: {value}. Please try again.")
                 continue
             return value
         except ValueError:
@@ -50,7 +50,7 @@ def check_reader_connection(max_retries=3, retry_delay=2, timeout=5):
     
     print(f"Error: Failed to connect to reader at {READER_IP}:{PORT} after {max_retries} attempts.")
     return False        
-    
+
 def run_inventory():
     # Check reader connection before proceeding
     if not check_reader_connection():
@@ -59,6 +59,20 @@ def run_inventory():
 
     # Get total runtime from user
     total_time = get_user_input("Total inventory duration (seconds)", 10, float, lambda x: x > 0)
+    
+    # Get EPC filter from user (comma-separated list or press Enter to skip)
+    def validate_epc_list(epc_str):
+        if not epc_str:
+            return True  # Allow empty input (will be handled by default)
+        epcs = [epc.strip() for epc in epc_str.split(',')]
+        for epc in epcs:
+            if not re.match(r'^[0-9a-fA-F]+$', epc):
+                print(f"Invalid EPC format: {epc}. EPCs must be hexadecimal strings (e.g., 30340212e43c789b0223addd).")
+                return False
+        return True
+
+    epc_input = get_user_input("EPC(s) to filter", None, str, validate_epc_list)
+    epc_filter = None if epc_input is None else [epc.strip() for epc in epc_input.split(',')]
     
     # Generate timestamp for the filename (same as RunTimestamp but filesystem-friendly)
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
@@ -100,7 +114,7 @@ def run_inventory():
                         capture_output=True,
                         text=True,
                         check=True,
-                        timeout=interval_per_antenna + 5
+                        timeout=interval_per_antenna + 1
                     )
                     output = result.stdout
                     
@@ -124,6 +138,11 @@ def run_inventory():
                         epc = tag.get('EPC', 'Unknown')
                         if isinstance(epc, bytes):  # Convert bytes to hex string
                             epc = epc.hex()
+                        
+                        # Apply EPC filter
+                        if epc_filter and epc != 'Unknown' and epc not in epc_filter:
+                            continue  # Skip this tag if it doesn't match the filter
+                        
                         rssi = tag.get('ImpinjPeakRSSI', 'Unknown')
                         if rssi != 'Unknown':
                             rssi = f"{rssi / 100:.2f}"
@@ -178,6 +197,11 @@ def run_inventory():
                         epc = tag.get('EPC', 'Unknown')
                         if isinstance(epc, bytes):
                             epc = epc.hex()
+                        
+                        # Apply EPC filter
+                        if epc_filter and epc != 'Unknown' and epc not in epc_filter:
+                            continue  # Skip this tag if it doesn't match the filter
+                        
                         rssi = tag.get('ImpinjPeakRSSI', 'Unknown')
                         if rssi != 'Unknown':
                             rssi = f"{rssi / 100:.2f}"
