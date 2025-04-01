@@ -103,7 +103,7 @@ def TinyExampleTest( conn ):
 if __name__ == '__main__':
 	print( 'AutoDetecting reader...' )
 	reader, computer_ip = AutoDetect()
-	#reader = '192.168.0.100'
+	#reader = '192.168.0.219'
 	if not reader:
 		print( 'No reader detected.' )
 		sys.exit( -1 )
