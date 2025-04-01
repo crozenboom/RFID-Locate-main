@@ -1,5 +1,6 @@
-import pyllrp
-from pyllrp import Message, Parameter, LLRPError
+import pyllrp # type: ignore
+from pyllrp import Message, Parameter, LLRPError # type: ignore
+from datetime import datetime, time
 
 # Reader settings
 READER_IP = "192.168.0.219"
