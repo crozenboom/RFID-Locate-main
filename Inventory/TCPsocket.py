@@ -7,6 +7,7 @@ import signal
 import sys
 import queue
 import threading
+import re
 
 # Reader settings
 READER_IP = "192.168.0.219"
@@ -85,13 +86,7 @@ def save_to_csv_periodically(data_queue, csv_file, stop_event):
 
 def construct_llrp_message(msg_type, msg_id, parameters=b''):
     """Construct an LLRP message in binary format."""
-    # LLRP message header: 10 bytes
-    # Bits 0-5: Reserved (0)
-    # Bits 6-15: Message Type (10 bits)
-    # Bits 16-31: Message Length (16 bits)
-    # Bits 32-63: Message ID (32 bits)
     msg_length = 10 + len(parameters)  # Header (10 bytes) + parameters
-    # Version 1 (001), Reserved (00000), Message Type (10 bits)
     msg_type_field = (1 << 10) | (msg_type & 0x3FF)  # Version 1, message type
     header = struct.pack('>HI', msg_type_field, msg_length) + struct.pack('>I', msg_id)
     return header + parameters
@@ -105,6 +100,33 @@ def parse_llrp_message(data):
     msg_type = msg_type_field & 0x3FF  # Extract the message type (last 10 bits)
     body = data[10:msg_length]
     return msg_type, msg_length, msg_id, body
+
+def parse_reader_event_notification(body):
+    """Parse a READER_EVENT_NOTIFICATION message to extract error details."""
+    pos = 0
+    error_message = None
+    while pos < len(body):
+        if pos + 4 > len(body):
+            break
+        param_type, param_length = struct.unpack('>HH', body[pos:pos+4])
+        param_type &= 0x3FF
+        if param_type == 287:  # ReaderEventNotificationData
+            param_body = body[pos+4:pos+param_length]
+            sub_pos = 0
+            while sub_pos < len(param_body):
+                if sub_pos + 4 > len(param_body):
+                    break
+                sub_param_type, sub_param_length = struct.unpack('>HH', param_body[sub_pos:sub_pos+4])
+                sub_param_type &= 0x3FF
+                sub_param_body = param_body[sub_pos+4:sub_pos+sub_param_length]
+                sub_pos += sub_param_length
+                if sub_param_type == 296:  # ConnectionAttemptEvent
+                    status = struct.unpack('>H', sub_param_body)[0]
+                    error_message = f"ConnectionAttemptEvent: Status {status}"
+                    if status == 1:
+                        error_message += " (Failed - possibly another LLRP connection is active)"
+        pos += param_length
+    return error_message
 
 def parse_tag_report(body, epc_filter):
     """Parse an RO_ACCESS_REPORT message body and extract tag data."""
@@ -215,7 +237,7 @@ def run_inventory():
     # Connect to the reader
     print(f"Connecting to reader at {READER_IP}:{LLRP_PORT}...")
     with socket.create_connection((READER_IP, LLRP_PORT)) as s:
-        s.settimeout(5)  # Set a timeout for receiving data
+        s.settimeout(10)  # Increased timeout to 10 seconds
 
         # Step 1: Reset the reader configuration (SET_READER_CONFIG with ResetToFactoryDefault)
         set_reader_config = construct_llrp_message(
@@ -227,11 +249,22 @@ def run_inventory():
                 b'\x00'  # Reserved
             )
         )
+        print("Sending SET_READER_CONFIG message...")
         s.sendall(set_reader_config)
-        response = s.recv(4096)
-        msg_type, _, _, _ = parse_llrp_message(response)
-        if msg_type != 110:  # SET_READER_CONFIG_RESPONSE
-            print("Failed to reset reader configuration")
+        try:
+            response = s.recv(4096)
+            print("Raw response:", response.hex())
+            msg_type, msg_length, msg_id, body = parse_llrp_message(response)
+            print(f"Parsed response - Message Type: {msg_type}, Length: {msg_length}, ID: {msg_id}")
+            if msg_type == 63:  # READER_EVENT_NOTIFICATION
+                error_message = parse_reader_event_notification(body)
+                print(f"Received READER_EVENT_NOTIFICATION: {error_message}")
+                sys.exit(1)
+            if msg_type != 110:  # SET_READER_CONFIG_RESPONSE
+                print("Failed to reset reader configuration")
+                sys.exit(1)
+        except socket.timeout:
+            print("Timeout waiting for SET_READER_CONFIG_RESPONSE")
             sys.exit(1)
 
         # Step 2: Enable Impinj Extensions (CUSTOM_MESSAGE)
@@ -248,21 +281,21 @@ def run_inventory():
                 b''  # No additional data
             )
         )
+        print("Sending IMPINJ_ENABLE_EXTENSIONS message...")
         s.sendall(impinj_enable_extensions)
-        response = s.recv(4096)
-        msg_type, _, _, _ = parse_llrp_message(response)
-        if msg_type != 60:  # CUSTOM_MESSAGE_RESPONSE
-            print("Failed to enable Impinj extensions")
+        try:
+            response = s.recv(4096)
+            print("Raw response:", response.hex())
+            msg_type, msg_length, msg_id, body = parse_llrp_message(response)
+            print(f"Parsed response - Message Type: {msg_type}, Length: {msg_length}, ID: {msg_id}")
+            if msg_type != 60:  # CUSTOM_MESSAGE_RESPONSE
+                print("Failed to enable Impinj extensions")
+                sys.exit(1)
+        except socket.timeout:
+            print("Timeout waiting for CUSTOM_MESSAGE_RESPONSE")
             sys.exit(1)
 
         # Step 3: Add an RO_SPEC (ADD_ROSPEC)
-        # RO_SPEC structure:
-        # - ROSpecID: 1
-        # - Priority: 0
-        # - CurrentState: Disabled
-        # - ROBoundarySpec: Immediate start, no stop trigger
-        # - AISpec: Antennas 1, 2, 3, 4; Duration trigger (total_time)
-        # - ROReportSpec: Report every tag
         ro_spec = (
             b'\x00\x8E\x00\x4A' +  # ROSpec (type 142, length 74)
             struct.pack('>I', 1) +  # ROSpecID
@@ -296,19 +329,24 @@ def run_inventory():
             b'\x00\x00' +  # Enable bits (set below)
             b'\x00\x00'  # Reserved
         )
-        # Enable specific fields in TagReportContentSelector
-        # Enable: AntennaID, ChannelIndex, PeakRSSI, LastSeenTimestamp, TagSeenCount
         ro_spec = ro_spec[:77] + b'\x00\x1C' + ro_spec[79:]  # Set bits 2, 3, 4, 6, 7
         add_ro_spec = construct_llrp_message(
             msg_type=30,  # ADD_ROSPEC
             msg_id=3,
             parameters=ro_spec
         )
+        print("Sending ADD_ROSPEC message...")
         s.sendall(add_ro_spec)
-        response = s.recv(4096)
-        msg_type, _, _, _ = parse_llrp_message(response)
-        if msg_type != 120:  # ADD_ROSPEC_RESPONSE
-            print("Failed to add RO_SPEC")
+        try:
+            response = s.recv(4096)
+            print("Raw response:", response.hex())
+            msg_type, msg_length, msg_id, body = parse_llrp_message(response)
+            print(f"Parsed response - Message Type: {msg_type}, Length: {msg_length}, ID: {msg_id}")
+            if msg_type != 120:  # ADD_ROSPEC_RESPONSE
+                print("Failed to add RO_SPEC")
+                sys.exit(1)
+        except socket.timeout:
+            print("Timeout waiting for ADD_ROSPEC_RESPONSE")
             sys.exit(1)
 
         # Step 4: Enable the RO_SPEC (ENABLE_ROSPEC)
@@ -320,11 +358,18 @@ def run_inventory():
                 struct.pack('>I', 1)  # ROSpecID
             )
         )
+        print("Sending ENABLE_ROSPEC message...")
         s.sendall(enable_ro_spec)
-        response = s.recv(4096)
-        msg_type, _, _, _ = parse_llrp_message(response)
-        if msg_type != 122:  # ENABLE_ROSPEC_RESPONSE
-            print("Failed to enable RO_SPEC")
+        try:
+            response = s.recv(4096)
+            print("Raw response:", response.hex())
+            msg_type, msg_length, msg_id, body = parse_llrp_message(response)
+            print(f"Parsed response - Message Type: {msg_type}, Length: {msg_length}, ID: {msg_id}")
+            if msg_type != 122:  # ENABLE_ROSPEC_RESPONSE
+                print("Failed to enable RO_SPEC")
+                sys.exit(1)
+        except socket.timeout:
+            print("Timeout waiting for ENABLE_ROSPEC_RESPONSE")
             sys.exit(1)
 
         # Step 5: Listen for RO_ACCESS_REPORT messages
@@ -344,7 +389,10 @@ def run_inventory():
                 )
             )
             s.sendall(stop_ro_spec)
-            response = s.recv(4096)
+            try:
+                response = s.recv(4096)
+            except socket.timeout:
+                pass
             # Save any remaining data
             all_reads = []
             while not data_queue.empty():
@@ -427,7 +475,10 @@ def run_inventory():
             )
         )
         s.sendall(stop_ro_spec)
-        response = s.recv(4096)
+        try:
+            response = s.recv(4096)
+        except socket.timeout:
+            pass
 
         # Save any remaining data
         all_reads = []
