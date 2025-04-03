@@ -13,7 +13,7 @@ class TagInventory:
 	inventoryParameterSpecID = 1234	# Arbitrary inventory parameter spec id.
 	readWaitMilliseconds = 100
 
-	def __init__( self, host='192.168.10.102', defaultAntennas=None, transmitPower=None, receiverSensitivity=None ):
+	def __init__( self, host='192.168.0.219', defaultAntennas=None, transmitPower=None, receiverSensitivity=None ):
 		self.host = host
 		self.connector = None
 		self.resetTagInventory()
