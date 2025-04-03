@@ -50,7 +50,7 @@ def get_my_ip():
 		s.connect(('10.255.255.255', 1))
 		IP = s.getsockname()[0]
 	except Exception as e:
-		IP = '127.0.0.1'
+		IP = '192.168.0.219'
 	finally:
 		s.close()
 	return IP
