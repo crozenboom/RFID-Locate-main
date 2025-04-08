@@ -1,0 +1,1 @@
+#define VERSION_STR 12.0.0.0
