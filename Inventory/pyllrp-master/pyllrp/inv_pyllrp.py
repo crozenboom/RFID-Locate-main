@@ -152,7 +152,7 @@ class TagInventory:
         assert response.success(), f'SET_READER_CONFIG ResetToFactoryDefault fails\n{response}'
 
         # Enable Impinj extensions
-        impinj_enable_extensions = Custom(
+        impinj_enable_extensions = Custom( # type: ignore
             MessageID=0xeded,
             VendorID=25882,  # Impinj Vendor ID
             Subtype=21       # IMPINJ_ENABLE_EXTENSIONS subtype

@@ -12,7 +12,6 @@ except Exception as e:
 	from AutoDetect import AutoDetect
 	from LLRPConnector import LLRPConnector
 	from TagInventory import TagInventory
-
 #-----------------------------------------------------------------------------------------
 
 def CustomExtensionTest( reader ):
