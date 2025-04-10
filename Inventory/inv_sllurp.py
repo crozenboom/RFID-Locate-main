@@ -79,12 +79,12 @@ def run_inventory():
     csv_file = f"{CSV_FILE_BASE}_{timestamp}.csv"  # e.g., rfid_data_2025-03-21T14-20-00.csv
     
     # Interval per antenna (in seconds)
-    interval_per_antenna = 0.25  # 250 milliseconds
+    interval_per_antenna = 29  # 29 seconds
     
     # Base command (without antenna specification)
     base_cmd = [
         "sllurp", "inventory", READER_IP,
-        "-p", str(PORT), "-X", "0", "-t", str(interval_per_antenna),  # 0.25 seconds per antenna
+        "-p", str(PORT), "-X", "0", "-t", str(interval_per_antenna), 
         "--impinj-reports"
     ]
     
