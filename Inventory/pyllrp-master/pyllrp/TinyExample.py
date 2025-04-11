@@ -18,27 +18,27 @@ def CustomExtensionTest( reader ):
 	'''
 		Test Impinj custom message.
 	'''
-	with LLRPConnector() as conn:
-		conn.connect( reader )
+	#with LLRPConnector() as conn:
+		#conn.connect( reader )
 		
-		message = IMPINJ_ENABLE_EXTENSIONS_Message( MessageID = 0xeded )
-		response = conn.transact( message )
-		if not response.success():
-			print( 'This reader does not support Impinj extensions.' )
-			return
+		#message = IMPINJ_ENABLE_EXTENSIONS_Message( MessageID = 0xeded )
+		#response = conn.transact( message )
+		#if not response.success():
+		#	print( 'This reader does not support Impinj extensions.' )
+		#	return
 			
-		message = GET_READER_CONFIG_Message( MessageID = 0xededed, RequestedData = GetReaderConfigRequestedData.All )
-		response = conn.transact( message )
-		if not response.success():
-			print( 'GET_READER_CONFIG_Message fails.' )
-			return
-					
-		print( response )	
-		p = response.getFirstParameterByClass( ImpinjReaderTemperature_Parameter )
-		if p:
-			print( 'Reader Temperature =', p.Temperature )
-		else:
-			print( 'This reader supports Impinj extensions but did not return a Reader Temperature.' )
+		#message = GET_READER_CONFIG_Message( MessageID = 0xededed, RequestedData = GetReaderConfigRequestedData.All )
+		#response = conn.transact( message )
+		#if not response.success():
+		#	print( 'GET_READER_CONFIG_Message fails.' )
+		#	return
+		#			
+		#print( response )	
+		#p = response.getFirstParameterByClass( ImpinjReaderTemperature_Parameter )
+		#if p:
+		#	print( 'Reader Temperature =', p.Temperature )
+		#else:
+		#	print( 'This reader supports Impinj extensions but did not return a Reader Temperature.' )
 	
 def TinyExampleTest( conn ):
 	'''
@@ -76,6 +76,7 @@ def TinyExampleTest( conn ):
 							TagReportContentSelector_Parameter(
 								EnableAntennaID = True,
 								EnableFirstSeenTimestamp = True,
+								EnablePeakRSSI = True,
 							),
 						]
 					), # ROReportSpec
@@ -102,7 +103,7 @@ def TinyExampleTest( conn ):
 if __name__ == '__main__':
 	print( 'AutoDetecting reader...' )
 	reader, computer_ip = AutoDetect()
-	#reader = '192.168.0.219'
+	reader = '192.168.0.219'
 	if not reader:
 		print( 'No reader detected.' )
 		sys.exit( -1 )

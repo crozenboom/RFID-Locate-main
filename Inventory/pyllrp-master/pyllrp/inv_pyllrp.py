@@ -1,264 +1,185 @@
 #!/usr/bin/env python
+import sys
 import time
-import socket
-import csv
-from datetime import datetime
-import argparse
+import signal 
 try:
-    from .pyllrp import *
-    from .LLRPConnector import LLRPConnector
+	from . import pyllrp
+	from .AutoDetect import AutoDetect
+	from .LLRPConnector import LLRPConnector
+	from .TagInventory import TagInventory
 except Exception as e:
-    from pyllrp import *
-    from LLRPConnector import LLRPConnector
+	import pyllrp
+	from AutoDetect import AutoDetect
+	from LLRPConnector import LLRPConnector
+	from TagInventory import TagInventory
 
-class TagInventory:
-    roSpecID = 123                  # Arbitrary roSpecID.
-    inventoryParameterSpecID = 1234 # Arbitrary inventory parameter spec id.
+# Global flag for graceful shutdown
+running = True
 
-    def __init__(self, host='192.168.0.219', duration=10, transmitPower=None, receiverSensitivity=None):
-        self.host = host
-        self.connector = None
-        self.duration = duration * 1000  # Convert seconds to milliseconds for LLRP
-        self.transmitPower = transmitPower
-        self.receiverSensitivity = receiverSensitivity
-        self.resetTagInventory()
-        # CSV file setup
-        self.csv_file = f"tag_inventory_{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.csv"
-        self.csv_fieldnames = ['Timestamp', 'EPC', 'RSSI', 'AntennaID', 'PhaseAngle', 'ChannelFrequency', 'DopplerFrequency']
-        with open(self.csv_file, 'w', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=self.csv_fieldnames)
-            writer.writeheader()
+def signal_handler(sig, frame):
+    """Handle Ctrl+C to gracefully shut down."""
+    global running
+    print('\nShutting down...')
+    running = False
 
-    def resetTagInventory(self):
-        self.tagInventory = []
-        self.otherMessages = []
-
-    def AccessReportHandler(self, connector, accessReport):
-        for tag in accessReport.getTagData():
-            epc = HexFormatToStr(tag['EPC'])
-            antenna_id = tag.get('AntennaID', 'Unknown')
-            rssi = tag.get('PeakRSSI', 'Unknown')
-            timestamp = tag.get('FirstSeenTimestampUTC', 'Unknown')
-            # Check for Impinj custom parameters
-            phase_angle = 'Unknown'
-            channel_frequency = 'Unknown'
-            doppler_frequency = 'Unknown'
-            for param in tag.get('Custom', []):
-                if param['VendorID'] == 25882:  # Impinj Vendor ID
-                    if param['Subtype'] == 1:  # ImpinjRFPhaseAngle
-                        phase_angle = param['Data']
-                    elif param['Subtype'] == 2:  # ImpinjRFDopplerFrequency
-                        doppler_frequency = param['Data']
-                    elif param['Subtype'] == 3:  # ImpinjChannelFrequency
-                        channel_frequency = param['Data']
-
-            tag_data = {
-                'Timestamp': timestamp,
-                'EPC': epc,
-                'RSSI': rssi,
-                'AntennaID': antenna_id,
-                'PhaseAngle': phase_angle,
-                'ChannelFrequency': channel_frequency,
-                'DopplerFrequency': doppler_frequency
-            }
-            self.tagInventory.append(tag_data)
-            # Print to console
-            print(f"Timestamp: {timestamp}, EPC: {epc}, RSSI: {rssi}, Antenna: {antenna_id}, "
-                  f"Phase Angle: {phase_angle}, Channel Frequency: {channel_frequency}, Doppler Frequency: {doppler_frequency}")
-            # Write to CSV
-            with open(self.csv_file, 'a', newline='') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=self.csv_fieldnames)
-                writer.writerow(tag_data)
-
-    def DefaultHandler(self, connector, message):
-        self.otherMessages.append(message)
-
-    def _getReaderConfigMessage(self):
-        receiverSensitivityParameter = []
-        if self.receiverSensitivity is not None:
-            receiverSensitivityParameter.append(
-                RFReceiver_Parameter(
-                    ReceiverSensitivity=self.receiverSensitivity
-                )
-            )
+def access_report_handler(connector, access_report):
+    """Handle tag reports and print all available data."""
+    for tag in access_report.getTagData():
+        # Extract standard LLRP fields
+        epc = HexFormatToStr(tag.get('EPC', b''))
+        tid = HexFormatToStr(tag.get('TID', b'')) if 'TID' in tag else "N/A"
+        antenna = tag.get('AntennaID', 'N/A')
+        rssi = tag.get('PeakRSSI', 'N/A')
+        first_seen = tag.get('FirstSeenTimestampUTC', 'N/A')
+        last_seen = tag.get('LastSeenTimestampUTC', 'N/A')
+        channel = tag.get('ChannelIndex', 'N/A')
         
-        transmitPowerParameter = []
-        if self.transmitPower is not None:
-            transmitPowerParameter.append(
-                RFTransmitter_Parameter(
-                    TransmitPower=self.transmitPower,
-                    HopTableID=1,
-                    ChannelIndex=1,
-                )
-            )
-        
-        return SET_READER_CONFIG_Message(Parameters=[
-            AntennaConfiguration_Parameter(AntennaID=0, Parameters=
-                receiverSensitivityParameter +
-                transmitPowerParameter + [
-                C1G2InventoryCommand_Parameter(Parameters=[
-                    C1G2SingulationControl_Parameter(
-                        Session=0,
-                        TagPopulation=100,
-                        TagTransitTime=3000,
-                    ),
-                    # Enable Impinj extensions in the inventory command
-                    Custom_Parameter(
-                        VendorID=25882,  # Impinj Vendor ID
-                        Subtype=2,       # ImpinjTagReportContentSelector
-                        Parameters=[
-                            ImpinjTagReportContentSelector_Parameter(
-                                EnableRFPhaseAngle=True,
-                                EnablePeakRSSI=True,
-                                EnableRFDopplerFrequency=True,
-                                EnableChannelFrequency=True
-                            )
-                        ]
-                    )
-                ]),
-            ]),
-        ])
+        # Extract Impinj-specific fields (if available)
+        impinj_data = tag.get('Custom', {}).get('Impinj', {})
+        phase_angle = impinj_data.get('RFPhaseAngle', 'N/A')
+        doppler = impinj_data.get('RFDopplerFrequency', 'N/A')
 
-    def Connect(self, max_retries=3, retry_delay=2):
-        self.connector = LLRPConnector()
-        for attempt in range(1, max_retries + 1):
-            print(f"Attempting to connect to reader at {self.host}:5084 (Attempt {attempt}/{max_retries})...")
-            try:
-                # Call connect first to initialize the socket
-                response = self.connector.connect(self.host)
-                # Now that the socket is created, adjust the timeout
-                self.connector.readerSocket.settimeout(15)
-                print("Connection successful!")
-                break
-            except socket.timeout as e:
-                print(f"Connection attempt timed out after 6 seconds: {e}")
-                if attempt < max_retries:
-                    print(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                else:
-                    self.connector.disconnect()
-                    raise
-            except socket.error as e:
-                print(f"Connection attempt failed: {e}")
-                if attempt < max_retries:
-                    print(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                else:
-                    self.connector.disconnect()
-                    raise
+        print(f"Tag Report:")
+        print(f"  EPC: {epc}")
+        print(f"  TID: {tid}")
+        print(f"  Antenna: {antenna}")
+        print(f"  Peak RSSI: {rssi} dBm")
+        print(f"  First Seen: {first_seen}")
+        print(f"  Last Seen: {last_seen}")
+        print(f"  Channel Index (Freq): {channel}")
+        print(f"  Phase Angle: {phase_angle}")
+        print(f"  Doppler Frequency: {doppler}")
+        print("-" * 50)
 
-        # Reset to factory defaults
-        response = self.connector.transact(SET_READER_CONFIG_Message(ResetToFactoryDefault=True))
-        assert response.success(), f'SET_READER_CONFIG ResetToFactoryDefault fails\n{response}'
+def main():
+    # Reader IP (replace with your reader's IP if different)
+    reader_ip = '192.168.0.219'
+    rospec_id = 123
+    inventory_param_spec_id = 1234
 
-        # Enable Impinj extensions
-        impinj_enable_extensions = Custom( # type: ignore
-            MessageID=0xeded,
-            VendorID=25882,  # Impinj Vendor ID
-            Subtype=21       # IMPINJ_ENABLE_EXTENSIONS subtype
-        )
-        response = self.connector.transact(impinj_enable_extensions)
-        assert response.success(), f'Failed to enable Impinj extensions\n{response}'
+    # Set up signal handler for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
 
-        # Apply reader configuration
-        message = self._getReaderConfigMessage()
-        response = self.connector.transact(message)
-        assert response.success(), f'SET_READER_CONFIG Configuration fails:\n{response}'
+    # Create and connect to the reader
+    print(f"Connecting to reader at {reader_ip}...")
+    connector = LLRPConnector()
+    try:
+        connector.connect(reader_ip)
+    except Exception as e:
+        print(f"Failed to connect: {e}")
+        sys.exit(-1)
 
-    def Disconnect(self):
-        self.connector.disconnect()
-        self.connector = None
+    # Reset reader to factory defaults
+    #response = connector.transact(SET_READER_CONFIG_Message(ResetToFactoryDefault=True))
+    #if not response.success():
+     #   print("Failed to reset reader config.")
+      #  connector.disconnect()
+       # sys.exit(-1)
 
-    def GetROSpec(self, antennas=None):
-        if antennas is not None:
-            if not isinstance(antennas, list):
-                antennas = [antennas]
-        else:
-            antennas = [0]
-    
-        return ADD_ROSPEC_Message(Parameters=[
-            ROSpec_Parameter(
-                ROSpecID=self.roSpecID,
-                CurrentState=ROSpecState.Disabled,
-                Parameters=[
-                    ROBoundarySpec_Parameter(
-                        Parameters=[
-                            ROSpecStartTrigger_Parameter(ROSpecStartTriggerType=ROSpecStartTriggerType.Immediate),
-                            ROSpecStopTrigger_Parameter(
-                                ROSpecStopTriggerType=ROSpecStopTriggerType.Duration,
-                                Duration=self.duration
-                            ),
-                        ]
-                    ),
-                    AISpec_Parameter(
-                        AntennaIDs=antennas,
-                        Parameters=[
-                            AISpecStopTrigger_Parameter(
-                                AISpecStopTriggerType=AISpecStopTriggerType.Null,
-                            ),
-                            InventoryParameterSpec_Parameter(
-                                InventoryParameterSpecID=self.inventoryParameterSpecID,
-                                ProtocolID=AirProtocols.EPCGlobalClass1Gen2,
-                            ),
-                        ]
-                    ),
-                    ROReportSpec_Parameter(
-                        ROReportTrigger=ROReportTriggerType.Upon_N_Tags_Or_End_Of_AISpec,
-                        N=1,  # Report every tag read immediately
-                        Parameters=[
-                            TagReportContentSelector_Parameter(
-                                EnableAntennaID=True,
-                                EnableFirstSeenTimestamp=True,
-                                EnablePeakRSSI=True,
-                            ),
-                        ]
-                    ),
-                ]
-            ),
-        ])
+    # Enable Impinj extensions (if supported)
+    #response = connector.transact(IMPINJ_ENABLE_EXTENSIONS_Message(MessageID=1))
+    #if not response.success():
+     #   print("Warning: Impinj extensions not supported by this reader.")
+    #else:
+     #   print("Impinj extensions enabled.")
 
-    def _prolog(self, antennas=None):
-        response = self.connector.transact(DISABLE_ROSPEC_Message(ROSpecID=0))
-        response = self.connector.transact(DELETE_ROSPEC_Message(ROSpecID=self.roSpecID))
+    # Define ROSpec with all data fields enabled
+    rospec = ADD_ROSPEC_Message(Parameters=[
+        ROSpec_Parameter(
+            ROSpecID=rospec_id,
+            CurrentState=ROSpecState.Disabled,
+            Parameters=[
+                ROBoundarySpec_Parameter(
+                    Parameters=[
+                        ROSpecStartTrigger_Parameter(ROSpecStartTriggerType=ROSpecStartTriggerType.Immediate),
+                        ROSpecStopTrigger_Parameter(ROSpecStopTriggerType=ROSpecStopTriggerType.Null),
+                    ]
+                ),
+                AISpec_Parameter(
+                    AntennaIDs=[0],  # Use all antennas (0 means all in some readers)
+                    Parameters=[
+                        AISpecStopTrigger_Parameter(AISpecStopTriggerType=AISpecStopTriggerType.Null),
+                        InventoryParameterSpec_Parameter(
+                            InventoryParameterSpecID=inventory_param_spec_id,
+                            ProtocolID=AirProtocols.EPCGlobalClass1Gen2,
+                        ),
+                        # Optional: Add TID read operation (requires access command)
+                        C1G2Read_Parameter(
+                            OpSpecID=1,
+                            AntennaID=0,
+                            MB=1,  # Memory bank 1 = TID
+                            WordPtr=0,
+                            WordCount=4,  # Read 4 words (adjust based on tag)
+                            AccessPassword=0,
+                        ),
+                    ]
+                ),
+                ROReportSpec_Parameter(
+                    ROReportTrigger=ROReportTriggerType.Upon_N_Tags_Or_End_Of_AISpec,
+                    N=1,  # Report every tag read
+                    Parameters=[
+                        TagReportContentSelector_Parameter(
+                            EnableAntennaID=True,
+                            EnableChannelIndex=True,
+                            EnablePeakRSSI=True,
+                            EnableFirstSeenTimestamp=True,
+                            EnableLastSeenTimestamp=True,
+                            EnableTagSeenCount=True,
+                            EnableROSpecID=True,
+                            EnableSpecIndex=True,
+                            EnableInventoryParameterSpecID=True,
+                            EnableCRC=True,
+                            EnablePCBits=True,
+                            EnableAccessSpecID=True,
+                        ),
+                        # Impinj-specific extensions
+                        ImpinjTagReportContentSelector_Parameter(
+                            EnableRFPhaseAngle=True,
+                            EnablePeakRSSI=True,  # Redundant but included for clarity
+                            EnableRFDopplerFrequency=True,
+                        ),
+                    ]
+                ),
+            ]
+        ),
+    ])
 
-        self.resetTagInventory()
-        self.connector.addHandler(RO_ACCESS_REPORT_Message, self.AccessReportHandler)
-        self.connector.addHandler('default', self.DefaultHandler)
+    # Clean up any existing ROSpec
+    connector.transact(DELETE_ROSPEC_Message(ROSpecID=rospec_id))
 
-        response = self.connector.transact(self.GetROSpec(antennas))
-        assert response.success(), f'Add ROSpec Fails\n{response}'
+    # Add and enable the ROSpec
+    response = connector.transact(rospec)
+    if not response.success():
+        print(f"Failed to add ROSpec: {response}")
+        connector.disconnect()
+        sys.exit(-1)
 
-    def _execute(self):
-        response = self.connector.transact(ENABLE_ROSPEC_Message(ROSpecID=self.roSpecID))
-        assert response.success(), f'Enable ROSpec Fails\n{response}'
+    response = connector.transact(ENABLE_ROSPEC_Message(ROSpecID=rospec_id))
+    if not response.success():
+        print(f"Failed to enable ROSpec: {response}")
+        connector.disconnect()
+        sys.exit(-1)
 
-        # Wait for the duration plus a small buffer
-        time.sleep((self.duration / 1000.0) + 1.0)
+    # Add handler for tag reports
+    connector.addHandler(RO_ACCESS_REPORT_Message, access_report_handler)
 
-        response = self.connector.transact(DISABLE_ROSPEC_Message(ROSpecID=self.roSpecID))
-        assert response.success(), f'Disable ROSpec Fails\n{response}'
+    # Start listener thread
+    print("Starting listener... (Press Ctrl+C to stop)")
+    connector.startListener()
 
-    def _epilog(self):
-        response = self.connector.transact(DELETE_ROSPEC_Message(ROSpecID=self.roSpecID))
-        assert response.success(), f'Delete ROSpec Fails\n{response}'
-        self.connector.removeAllHandlers()
+    # Run indefinitely until interrupted
+    try:
+        while running:
+            time.sleep(1)  # Keep main thread alive
+    except KeyboardInterrupt:
+        pass  # Handled by signal_handler
 
-    def GetTagInventory(self, antennas=None):
-        self._prolog(antennas)
-        self._execute()
-        self._epilog()
-        return self.tagInventory, self.otherMessages
+    # Cleanup
+    connector.stopListener()
+    connector.transact(DISABLE_ROSPEC_Message(ROSpecID=rospec_id))
+    connector.transact(DELETE_ROSPEC_Message(ROSpecID=rospec_id))
+    connector.disconnect()
+    print("Disconnected from reader.")
 
 if __name__ == '__main__':
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='RFID Tag Inventory Script')
-    parser.add_argument('--power', type=int, default=91, help='Transmit power level (default: 91)')
-    parser.add_argument('--duration', type=int, default=10, help='Inventory duration in seconds (default: 10)')
-    args = parser.parse_args()
-
-    print(f"Running inventory at power level {args.power} for {args.duration} seconds")
-    host = '192.168.0.219'
-    ti = TagInventory(host, duration=args.duration, transmitPower=args.power)
-    ti.Connect()
-    tagInventory, otherMessages = ti.GetTagInventory()
-    ti.Disconnect()
+    main()
