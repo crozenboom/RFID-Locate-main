@@ -1,6 +1,6 @@
 from flask import Flask, request # type: ignore
 import urllib.parse
-import csv
+import csv # type: ignore
 import os
 from datetime import datetime
 
