@@ -10,8 +10,6 @@ app = Flask(__name__)
 
 # Global list to store all tag reads during the run
 all_tag_reads = []
-# Duration to run the server (in seconds)
-RUN_DURATION = 60  # Set your desired duration here
 
 @app.route('/rfid', methods=['POST'])
 def receive_data():
@@ -34,9 +32,10 @@ def receive_data():
         if value_line.strip():  # Skip empty lines
             values = value_line.split(',')
             tag_read = dict(zip(field_names, values))
-            # Add reader metadata to the tag read
+            # Add reader metadata and timestamp to the tag read
             tag_read['reader_name'] = reader_name
             tag_read['mac_address'] = mac_address
+            tag_read['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             all_tag_reads.append(tag_read)
     
     # Print parsed data to console
@@ -73,16 +72,26 @@ def write_csv():
     
     print(f"Data written to {csv_filename}")
 
-def shutdown_server():
-    """Stop the Flask server after RUN_DURATION seconds."""
-    time.sleep(RUN_DURATION)
-    print(f"Run duration of {RUN_DURATION} seconds completed. Stopping server...")
+def shutdown_server(duration):
+    """Stop the Flask server after the specified duration (in seconds)."""
+    time.sleep(duration)
+    print(f"Run duration of {duration} seconds completed. Stopping server...")
     write_csv()
-    # Graceful shutdown (works in most environments)
+    # Graceful shutdown
     os._exit(0)
 
 if __name__ == '__main__':
+    # Prompt user for run duration
+    while True:
+        try:
+            run_duration = int(input("Enter run duration in seconds: "))
+            if run_duration > 0:
+                break
+            print("Please enter a positive number.")
+        except ValueError:
+            print("Please enter a valid number.")
+    
     # Start the shutdown timer in a separate thread
-    threading.Thread(target=shutdown_server, daemon=True).start()
+    threading.Thread(target=shutdown_server, args=(run_duration,), daemon=True).start()
     # Run the Flask app
     app.run(host="0.0.0.0", port=5050)
