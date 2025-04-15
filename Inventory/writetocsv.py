@@ -19,9 +19,9 @@ def receive_data():
     # Parse URL-encoded data into a dictionary
     parsed_data = urllib.parse.parse_qs(raw_data)
     
-    # Extract reader metadata
-    reader_name = parsed_data.get('reader_name', [''])[0]
-    mac_address = parsed_data.get('mac_address', [''])[0]
+    # Extract reader metadata, stripping quotes
+    reader_name = parsed_data.get('reader_name', [''])[0].strip('"')
+    mac_address = parsed_data.get('mac_address', [''])[0].strip('"')
     
     # Extract field names and values
     field_names = parsed_data.get('field_names', [''])[0].split(',')
@@ -30,7 +30,7 @@ def receive_data():
     # Process each tag read
     for value_line in field_values:
         if value_line.strip():  # Skip empty lines
-            values = value_line.split(',')
+            values = [v.strip('"') for v in value_line.split(',')]  # Strip quotes from each value
             tag_read = dict(zip(field_names, values))
             # Add reader metadata and timestamp to the tag read
             tag_read['reader_name'] = reader_name
@@ -42,7 +42,7 @@ def receive_data():
     print(f"Reader: {reader_name}, MAC: {mac_address}")
     for value_line in field_values:
         if value_line.strip():
-            values = value_line.split(',')
+            values = [v.strip('"') for v in value_line.split(',')]
             tag_read = dict(zip(field_names, values))
             print(f"Tag Read: {tag_read}")
     
