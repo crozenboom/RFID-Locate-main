@@ -1,5 +1,8 @@
 from flask import Flask, request # type: ignore
 import urllib.parse
+import csv
+import os
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -27,10 +30,33 @@ def receive_data():
             tag_read = dict(zip(field_names, values))
             tag_reads.append(tag_read)
     
-    # Print or process the parsed data
+    # Generate CSV file with timestamp in filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_filename = f"rfid_data_{timestamp}.csv"
+    
+    # Write to CSV
+    with open(csv_filename, mode='w', newline='') as csv_file:
+        # Define CSV columns: reader metadata + dynamic field names
+        csv_columns = ['reader_name', 'mac_address'] + field_names
+        writer = csv.DictWriter(csv_file, fieldnames=csv_columns)
+        
+        # Write header
+        writer.writeheader()
+        
+        # Write tag reads
+        for read in tag_reads:
+            # Combine reader metadata with tag read data
+            row = {'reader_name': reader_name, 'mac_address': mac_address}
+            row.update(read)
+            writer.writerow(row)
+    
+    # Print parsed data to console (as before)
     print(f"Reader: {reader_name}, MAC: {mac_address}")
     for read in tag_reads:
         print(f"Tag Read: {read}")
+    
+    # Confirm CSV was written
+    print(f"Data written to {csv_filename}")
     
     return "OK", 200
 
