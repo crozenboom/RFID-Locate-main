@@ -48,18 +48,31 @@ def receive_data():
     
     return "OK", 200
 
-def write_csv():
+def write_csv(epc_filter=None):
     if not all_tag_reads:
         print("No tag reads collected, skipping CSV creation.")
+        return
+    
+    # Filter tag reads by EPC if a filter is provided
+    filtered_reads = all_tag_reads
+    if epc_filter:
+        epc_filter = epc_filter.lower()
+        filtered_reads = [
+            read for read in all_tag_reads
+            if 'epc' in read and epc_filter in read['epc'].lower()
+        ]
+    
+    if not filtered_reads:
+        print("No tag reads match the EPC filter, skipping CSV creation.")
         return
     
     # Generate single CSV file with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_filename = f"rfid_data_{timestamp}.csv"
     
-    # Get all possible field names from collected data
+    # Get all possible field names from filtered data
     field_names = set()
-    for read in all_tag_reads:
+    for read in filtered_reads:
         field_names.update(read.keys())
     field_names = sorted(field_names)  # Sort for consistent column order
     
@@ -67,16 +80,16 @@ def write_csv():
     with open(csv_filename, mode='w', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=field_names)
         writer.writeheader()
-        for read in all_tag_reads:
+        for read in filtered_reads:
             writer.writerow(read)
     
     print(f"Data written to {csv_filename}")
 
-def shutdown_server(duration):
+def shutdown_server(duration, epc_filter):
     """Stop the Flask server after the specified duration (in seconds)."""
     time.sleep(duration)
     print(f"Run duration of {duration} seconds completed. Stopping server...")
-    write_csv()
+    write_csv(epc_filter)
     # Graceful shutdown
     os._exit(0)
 
@@ -91,7 +104,12 @@ if __name__ == '__main__':
         except ValueError:
             print("Please enter a valid number.")
     
+    # Prompt user for EPC filter
+    epc_filter = input("Enter EPC filter (leave blank for no filter): ").strip()
+    if not epc_filter:
+        epc_filter = None
+    
     # Start the shutdown timer in a separate thread
-    threading.Thread(target=shutdown_server, args=(run_duration,), daemon=True).start()
+    threading.Thread(target=shutdown_server, args=(run_duration, epc_filter), daemon=True).start()
     # Run the Flask app
     app.run(host="0.0.0.0", port=5050)
