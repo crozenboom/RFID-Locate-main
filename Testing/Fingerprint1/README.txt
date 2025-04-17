@@ -3,7 +3,7 @@ RFID Fingerprinting Test
 
 Overview:
 
-This project conducts an RFID fingerprinting test using an Impinj Speedway RFID reader with Speedway Connect software and a Flask-based Python script (100Test.py) to collect tag reads. The test was performed on a 6 ft by 6 ft grid with four antennas at fixed locations. RFID tags were placed at 16 grid points, and data was collected until each antenna recorded at least 100 tag reads. To ensure reliable detection, tags were spun randomly at each point to create motion, enhancing the antennas' ability to pick up signals.
+This project conducts an RFID fingerprinting test using an Impinj Speedway RFID reader with Speedway Connect software and a Flask-based Python script (Fingerprint.py) to collect tag reads. The test was performed on a 6 ft by 6 ft grid with four antennas at fixed locations. RFID tags were placed at 16 grid points, and data was collected until each antenna recorded at least 100 tag reads. To ensure reliable detection, tags were spun randomly at each point to create motion, enhancing the antennas' ability to pick up signals.
 
 
 Grid Layout:
@@ -63,7 +63,7 @@ Network: Reader must be able to send HTTP POST requests to the Flask server (por
 
 Script Description:
 
-The Python script (100Test.py) is a Flask application that:
+The Python script (Fingerprint.py) is a Flask application that:
 Listens for HTTP POST requests from Speedway Connect at http://<server-ip>:5050/rfid.
 Parses URL-encoded tag data, removing quotation marks for clean output.
 Tracks the number of tag reads per antenna (ports 1, 2, 3, 4) until each has at least 100 reads.
@@ -84,7 +84,7 @@ Reader Mode: AutoSet
 
 -Apply settings and ensure the reader status is green (enabled).
 -Place a tag at one of the 16 grid points, spinning it to induce motion. Repeat for each point as needed to accumulate reads.
--Run the Script: python 100Test.py
+-Run the Script: python Fingerprint.py
 -Prompt: “Enter EPC filter (leave blank for no filter):”
 -Enter an EPC (e.g., 303211) to filter CSV output to tags containing that EPC, or press Enter to include all tags.
 -The script runs until each antenna (1, 2, 3, 4) has at least 100 reads, printing tag data and antenna counts to the console.
