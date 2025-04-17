@@ -5,11 +5,19 @@ from datetime import datetime
 import threading
 import time
 import os
+import signal
+import sys
 
 app = Flask(__name__)
 
 # Global list to store all tag reads during the run
 all_tag_reads = []
+
+def signal_handler(sig, frame):
+    """Handle Ctrl+C to save data before exiting."""
+    print("\nInterrupted! Saving data to CSV...")
+    write_csv(epc_filter)
+    sys.exit(0)
 
 @app.route('/rfid', methods=['POST'])
 def receive_data():
@@ -94,22 +102,31 @@ def shutdown_server(duration, epc_filter):
     os._exit(0)
 
 if __name__ == '__main__':
+    # Register Ctrl+C handler
+    signal.signal(signal.SIGINT, signal_handler)
+    
     # Prompt user for run duration
     while True:
+        duration_input = input("Enter run duration in seconds (leave blank to run indefinitely): ").strip()
+        if not duration_input:
+            run_duration = None
+            break
         try:
-            run_duration = int(input("Enter run duration in seconds: "))
+            run_duration = int(duration_input)
             if run_duration > 0:
                 break
             print("Please enter a positive number.")
         except ValueError:
-            print("Please enter a valid number.")
+            print("Please enter a valid number or leave blank.")
     
     # Prompt user for EPC filter
     epc_filter = input("Enter EPC filter (leave blank for no filter): ").strip()
     if not epc_filter:
         epc_filter = None
     
-    # Start the shutdown timer in a separate thread
-    threading.Thread(target=shutdown_server, args=(run_duration, epc_filter), daemon=True).start()
+    # Start the shutdown timer only if a duration was provided
+    if run_duration is not None:
+        threading.Thread(target=shutdown_server, args=(run_duration, epc_filter), daemon=True).start()
+    
     # Run the Flask app
     app.run(host="0.0.0.0", port=5050)
