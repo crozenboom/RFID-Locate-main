@@ -121,6 +121,8 @@ sllurp_logger.addHandler(logging.StreamHandler())
 def tag_report_cb(_reader, tag_reports):
     """Callback to process tag data"""
     global TAG_DATA
+    # Debug: Print raw tag reports
+    print(f"Raw tag reports: {tag_reports}")
     # NEW CHANGE: Append new tag reads to TAG_DATA instead of overwriting
     new_tags = [
         RFIDTag(
@@ -135,8 +137,11 @@ def tag_report_cb(_reader, tag_reports):
         )
         for tag in tag_reports
     ]
+    # Debug: Print processed tags with antenna port
+    for tag in new_tags:
+        print(f"Processed tag: antenna_port={tag.antenna_port}, epc={tag.epc}, rssi={tag.rssi}")
     TAG_DATA.extend(new_tags)  # Append instead of assign
-    serializable_tags = [tag.model_dump() for tag in TAG_DATA]
+    serializable_tags = [tag.model_dump() for tag in new_tags]  # Use new_tags for queue
     TAG_QUEUE.put(serializable_tags)
     logging.info(f"Received {len(tag_reports)} tags")
 
@@ -223,12 +228,19 @@ async def start_stop():
 @app.get("/last-read")
 async def get_tags():
     # NEW CHANGE: Return only the latest tags for /last-read (for backward compatibility)
-    return {"tags": [tag.model_dump() for tag in TAG_DATA[-len(TAG_QUEUE.get() if not TAG_QUEUE.empty() else []):]]}
+    latest_tags = TAG_DATA[-len(TAG_QUEUE.get() if not TAG_QUEUE.empty() else []):]
+    # Debug: Print tags sent to /last-read
+    for tag in latest_tags:
+        print(f"/last-read tag: antenna_port={tag.antenna_port}, epc={tag.epc}, rssi={tag.rssi}")
+    return {"tags": [tag.model_dump() for tag in latest_tags]}
 
 
 @app.get("/all-reads")
 async def get_all_reads():
     # NEW ENDPOINT: Return all accumulated tag reads
+    # Debug: Print tags sent to /all-reads
+    for tag in TAG_DATA:
+        print(f"/all-reads tag: antenna_port={tag.antenna_port}, epc={tag.epc}, rssi={tag.rssi}")
     return {"tags": [tag.model_dump() for tag in TAG_DATA]}
 
 
