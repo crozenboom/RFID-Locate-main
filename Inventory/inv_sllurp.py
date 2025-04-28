@@ -1,7 +1,7 @@
 import csv
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 import ast
 import sys
 import logging
@@ -18,8 +18,8 @@ logging.basicConfig(
 logging.getLogger('sllurp.verb.inventory').setLevel(logging.WARNING)
 
 # Configuration
-COMMAND = ["sllurp", "inventory", "192.168.0.219", "-a", "0", "-X", "2000", "--impinj-reports"]
-INTERVAL = 2.0  # Time between CSV writes
+COMMAND = ["sllurp", "inventory", "192.168.0.219", "-a", "0", "-X", "0", "--impinj-reports"]
+INTERVAL = 2  # Cycle time
 MAX_RETRIES = 3
 TIMESTAMP_FIELD = 'LastSeenTimestampUTC'  # Options: 'LastSeenTimestampUTC', 'LastSeenTimestampUptime'
 
@@ -63,6 +63,57 @@ def parse_output(output):
     
     return tags
 
+def run_inventory():
+    """Run the sllurp inventory command and return parsed tag data."""
+    # Check LLRP port
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex(('192.168.0.219', 5084))
+        sock.close()
+        if result != 0:
+            logging.error("LLRP port 5084 not reachable")
+            time.sleep(2)  # Wait before retrying to allow reader recovery
+            return []
+    except Exception as e:
+        logging.error(f"Socket check failed: {e}")
+        time.sleep(2)  # Wait before retrying
+        return []
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            logging.info(f"Running command (attempt {attempt+1}): {' '.join(COMMAND)}")
+            process = subprocess.Popen(
+                COMMAND,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            time.sleep(INTERVAL)
+            
+            process.terminate()
+            try:
+                stdout, stderr = process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
+                logging.warning("Process killed after failing to terminate")
+            
+            if process.returncode != 0 and stderr:
+                logging.error(f"Command error: {stderr}")
+                continue
+            
+            tags = parse_output(stdout)
+            if not tags:
+                logging.info("No tags detected in this cycle")
+            return tags
+        except Exception as e:
+            logging.error(f"Attempt {attempt+1} failed: {e}")
+            time.sleep(1)
+    logging.error("All attempts failed")
+    return []
+
 def log_tags(tags, csv_file, epc_filter=None):
     """Log tag data to CSV, filtering by EPC if specified."""
     antenna_ids = set(tag['antenna'] for tag in tags)
@@ -91,94 +142,6 @@ def log_tags(tags, csv_file, epc_filter=None):
         else:
             logging.info(f"No tags logged to CSV (EPC filter: {epc_filter or 'None'})")
 
-def run_inventory(csv_file, runtime, epc_filter):
-    """Run continuous sllurp inventory, logging tags to CSV."""
-    # Check LLRP port
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)
-        result = sock.connect_ex(('192.168.0.219', 5084))
-        sock.close()
-        if result != 0:
-            logging.error("LLRP port 5084 not reachable")
-            return
-    except Exception as e:
-        logging.error(f"Socket check failed: {e}")
-        return
-    
-    start_time = time.time()
-    end_time = start_time + runtime if runtime else None
-    next_log_time = start_time + INTERVAL
-    tag_buffer = []
-
-    try:
-        logging.info(f"Starting continuous inventory: {' '.join(COMMAND)}")
-        process = subprocess.Popen(
-            COMMAND,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1  # Line-buffered
-        )
-        
-        while True:
-            # Check runtime
-            current_time = time.time()
-            if end_time and current_time >= end_time:
-                logging.info("Runtime expired")
-                break
-            
-            # Read output line-by-line
-            line = process.stdout.readline()
-            if not line and process.poll() is not None:
-                logging.error("Sllurp process ended unexpectedly")
-                break
-            
-            if line:
-                tags = parse_output(line)
-                if tags:
-                    tag_buffer.extend(tags)
-            
-            # Log tags to CSV at intervals
-            if current_time >= next_log_time:
-                if tag_buffer:
-                    log_tags(tag_buffer, csv_file, epc_filter)
-                    tag_buffer = []  # Clear buffer after logging
-                next_log_time += INTERVAL
-            
-            # Check for errors
-            if process.poll() is not None:
-                stderr = process.stderr.read()
-                if stderr:
-                    logging.error(f"Command error: {stderr}")
-                break
-        
-        # Polite stop
-        process.terminate()
-        try:
-            stdout, stderr = process.communicate(timeout=5)
-            if stdout:
-                tags = parse_output(stdout)
-                if tags:
-                    log_tags(tags, csv_file, epc_filter)
-            if stderr:
-                logging.error(f"Command error: {stderr}")
-        except subprocess.TimeoutExpired:
-            process.kill()
-            logging.warning("Process killed after failing to terminate")
-    
-    except KeyboardInterrupt:
-        logging.info("Stopped by user (Ctrl+C)")
-        process.terminate()
-        try:
-            process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            logging.warning("Process killed after failing to terminate")
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}")
-        process.kill()
-
 def main():
     """Main function to handle user input and run inventory."""
     # Generate unique CSV filename based on current timestamp
@@ -188,7 +151,7 @@ def main():
     print("Enter runtime in seconds (or press Enter to run indefinitely):")
     runtime_input = input().strip()
     
-    runtime = None
+    start_time = time.time()
     if runtime_input:
         try:
             runtime = float(runtime_input)
@@ -196,6 +159,7 @@ def main():
                 print("Runtime must be positive.")
                 logging.error("Invalid runtime: must be positive")
                 return
+            end_time = start_time + runtime
             print(f"Running for {runtime} seconds...")
             logging.info(f"Starting inventory for {runtime} seconds")
         except ValueError:
@@ -203,6 +167,7 @@ def main():
             logging.error("Invalid runtime input")
             return
     else:
+        end_time = None
         print("Running indefinitely (press Ctrl+C to stop)...")
         logging.info("Starting inventory indefinitely")
     
@@ -212,4 +177,43 @@ def main():
     if epc_filter:
         # Validate EPC: 24-character hexadecimal
         if len(epc_filter) == 24 and all(c in '0123456789abcdefABCDEF' for c in epc_filter):
-            logging.info 
+            logging.info(f"Applying EPC filter: {epc_filter}")
+        else:
+            logging.warning(f"Invalid EPC filter '{epc_filter}' (must be 24-character hex). No filter applied.")
+            epc_filter = None
+    else:
+        logging.info("No EPC filter applied")
+        epc_filter = None
+    
+    init_csv(csv_file)
+    
+    cycle_count = 0
+    try:
+        while True:
+            cycle_count += 1
+            logging.info(f"Starting cycle {cycle_count}")
+            if end_time and time.time() >= end_time:
+                logging.info("Runtime expired")
+                break
+            
+            cycle_start = time.time()
+            tags = run_inventory()
+            if tags:
+                log_tags(tags, csv_file, epc_filter)
+            
+            elapsed = time.time() - cycle_start
+            sleep_time = max(0, INTERVAL - elapsed)
+            time.sleep(sleep_time)
+    
+    except KeyboardInterrupt:
+        print("\nStopping inventory...")
+        logging.info("Stopped by user (Ctrl+C)")
+    except Exception as e:
+        print(f"Error: {e}")
+        logging.error(f"Unexpected error: {e}")
+    finally:
+        print("Inventory stopped.")
+        logging.info("Inventory stopped")
+
+if __name__ == '__main__':
+    main()
