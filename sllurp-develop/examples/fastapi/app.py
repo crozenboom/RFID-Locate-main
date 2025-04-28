@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from queue import Queue
 from typing import Optional
@@ -27,11 +28,10 @@ class RFIDTag(BaseModel):
     channel: int  # RF channel index
     last_seen: int  # Timestamp of last detection
     seen_count: int  # Number of times the tag was seen
-    antenna_port: int  # Antenna port number
-    rssi: int  # Received Signal Strength Indicator
-    phase_angle: int  # Phase angle of the tag signal
-    doppler_frequency: int # Doppler frequency
-
+    antennaID: int
+    rssi: int
+    phase_angle: int
+    doppler_frequency: int
 
 # RFID Reader Configuration
 READER_IP = "192.168.0.219"  # Ensure correct IP
@@ -43,6 +43,7 @@ READER: Optional[LLRPReaderClient] = None
 TAG_DATA: list[RFIDTag] = []
 TAG_QUEUE = Queue()
 ACTIVE_CONNECTIONS = []
+ANTENNA_TAG_COUNTS = defaultdict(int)
 
 
 async def process_queue():
@@ -61,6 +62,22 @@ async def process_queue():
                     ACTIVE_CONNECTIONS.remove(connection)
         await asyncio.sleep(0.1)  # Small delay to prevent CPU hogging
 
+# ADDED IN ########
+async def monitor_inventory():
+    """Monitor reader state and log antenna usage."""
+    # Added: Periodic check to ensure inventory is running and antennas are cycling
+    while READER and READER.is_alive():
+        state = LLRPReaderState.getStateName(READER.llrp.state)
+        logging.debug(f"Inventory monitor: Reader state is {state}")
+        if state != "STATE_INVENTORYING":
+            logging.warning("Inventory not running, attempting to restart")
+            READER.llrp.startInventory()
+            logging.info(f"Restarted inventory, state: {LLRPReaderState.getStateName(READER.llrp.state)}")
+        # Added: Log tag counts per antenna to verify cycling
+        antenna_counts = {ant: ANTENNA_TAG_COUNTS[ant] for ant in [1, 2, 3, 4]}
+        logging.info(f"Antenna tag counts: {antenna_counts}")
+        await asyncio.sleep(5)  # Check every 5 seconds
+#########################
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
@@ -71,20 +88,38 @@ async def lifespan(application: FastAPI):
         config.reset_on_connect = True
         config.start_inventory = True
         config.report_every_n_tags = 1
-        #config.dwell_time = 200
+        config.antennas = [1,2,3,4]
+        config.tx_power = {1:30,2:30,3:30,4:30}
+        config.report_timeout_ms = 100
+        config.tag_content_selector = {
+            'EnableROSpecID': True,
+            'EnableSpecIndex': False,
+            'EnableInventoryParameterSpecID': False,
+            'EnableAntennaID': True,
+            'EnableChannelIndex': True,
+            'EnablePeakRSSI': True,
+            'EnableFirstSeenTimestamp': False,
+            'EnableLastSeenTimestamp': True,
+            'EnableTagSeenCount': True,
+            'EnableAccessSpecID': False,
+            'EnableRFPhaseAngle': True,
+            'EnableRFDopplerFrequency': True
+        }
 
         # Enable GPI event listener
         # This will trigger the start of inventory when the GPI port 1 is High
         # and stop the inventory when the GPI port 1 is Low
         config.event_selector = {
-            "GPIEvent": True,
+            "GPIEvent": False,
         }
+        #config.impinj_extended_configuration = True
+        config.impinj_search_mode = 2
 
         READER = LLRPReaderClient(READER_IP, PORT, config)
         READER.add_tag_report_callback(tag_report_cb)
         READER.add_event_callback(handle_event)
         READER.connect()
-        logging.info("RFID Reader initialized during startup")
+        logging.info(f"RFID Reader initialized, state: {LLRPReaderState.getStateName(READER.llrp.state)}")
 
         task = asyncio.create_task(process_queue())
         yield
@@ -121,27 +156,26 @@ sllurp_logger.addHandler(logging.StreamHandler())
 def tag_report_cb(_reader, tag_reports):
     """Callback to process tag data"""
     global TAG_DATA
-    # Debug: Print raw tag reports
     print(f"Raw tag reports: {tag_reports}")
-    # NEW CHANGE: Append new tag reads to TAG_DATA instead of overwriting
     new_tags = [
         RFIDTag(
-            epc=tag["EPC"].decode("ascii"),
+            epc=tag["EPC"].decode("ascii", errors="ignore"),
             channel=tag["ChannelIndex"],
             last_seen=tag["LastSeenTimestampUTC"],
             seen_count=tag["TagSeenCount"],
-            antenna_port=tag["AntennaID"],
-            rssi=tag["PeakRSSI"],
+            antennaID=tag["AntennaID"],
             phase_angle=tag["ImpinjRFPhaseAngle"],
-            doppler_frequency=tag["ImpinjRFDopplerFrequency"]
+            doppler_frequency=tag["ImpinjRFDopplerFrequency"],
+            rssi=tag["PeakRSSI"]
         )
         for tag in tag_reports
     ]
-    # Debug: Print processed tags with antenna port
-    for tag in new_tags:
-        print(f"Processed tag: antenna_port={tag.antenna_port}, epc={tag.epc}, rssi={tag.rssi}")
-    TAG_DATA.extend(new_tags)  # Append instead of assign
-    serializable_tags = [tag.model_dump() for tag in new_tags]  # Use new_tags for queue
+    TAG_DATA.extend(new_tags)  # Store every read in TAG_DATA
+    # CHANGED: Only send new tags to WebSocket, not entire TAG_DATA
+    serializable_tags = [tag.model_dump() for tag in new_tags]
+    print(f"New tags added: {serializable_tags}")  # Debug
+    # CHANGED: Added debug to show total reads accumulated
+    print(f"Total TAG_DATA: {len(TAG_DATA)} reads")  # Debug
     TAG_QUEUE.put(serializable_tags)
     logging.info(f"Received {len(tag_reports)} tags")
 
@@ -179,7 +213,6 @@ def start_reading():
         clear_tag_data()
         READER.llrp.startInventory()
         return
-
 
 def stop_reading():
     if READER and READER.is_alive():
@@ -227,22 +260,12 @@ async def start_stop():
 
 @app.get("/last-read")
 async def get_tags():
-    # NEW CHANGE: Return only the latest tags for /last-read (for backward compatibility)
-    latest_tags = TAG_DATA[-len(TAG_QUEUE.get() if not TAG_QUEUE.empty() else []):]
-    # Debug: Print tags sent to /last-read
-    for tag in latest_tags:
-        print(f"/last-read tag: antenna_port={tag.antenna_port}, epc={tag.epc}, rssi={tag.rssi}")
-    return {"tags": [tag.model_dump() for tag in latest_tags]}
-
+    return {"tags": TAG_DATA}
 
 @app.get("/all-reads")
 async def get_all_reads():
-    # NEW ENDPOINT: Return all accumulated tag reads
-    # Debug: Print tags sent to /all-reads
-    for tag in TAG_DATA:
-        print(f"/all-reads tag: antenna_port={tag.antenna_port}, epc={tag.epc}, rssi={tag.rssi}")
-    return {"tags": [tag.model_dump() for tag in TAG_DATA]}
-
+    serializable_tags = [tag.model_dump() for tag in TAG_DATA]
+    return {"tags": serializable_tags}
 
 @app.get("/status")
 async def status():
