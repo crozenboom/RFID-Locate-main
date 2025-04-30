@@ -1,0 +1,39 @@
+Quiet Storage Closet with Static Tags
+Environment: Small, enclosed indoor space with tagged boxes or supplies, minimal activity.
+Tag Motion: Completely static, tags remain in fixed positions on shelves.
+Settings:
+Mode: 1002 (AutoSet Dense Reader Deep Scan)
+Session: 3
+Search Mode: Single Target with Suppression
+
+Retail Backroom with Slow-Moving Tags
+Environment: Moderately busy indoor area with tagged inventory on carts or shelves.
+Tag Motion: Slow-moving, tags occasionally shifted by staff restocking or organizing.
+Settings:
+Mode: 1004 (AutoSet Static Dense Reader)
+Session: 2
+Search Mode: Single Target
+
+Warehouse Conveyor with Fast-Moving Tags
+Environment: Large indoor space with conveyor belts and some equipment noise.
+Tag Motion: Fast-moving, tags on packages zip through the read zone at high speed.
+Settings:
+Mode: 0 (Max Throughput)
+Session: 3
+Search Mode: Single Target
+
+Outdoor Shipping Yard with Intermittent Tag Motion
+Environment: Open area with tagged pallets or crates, exposed to weather.
+Tag Motion: Intermittent, tags move sporadically as forklifts relocate items.
+Settings:
+Mode: 1 (Hybrid)
+Session: 2
+Search Mode: Single Target
+
+Crowded Event Space with Dynamic Tag Motion
+Environment: Busy indoor or outdoor venue with tagged wristbands or tickets.
+Tag Motion: Dynamic, tags move unpredictably as people walk through entrances.
+Settings:
+Mode: 1003 (AutoSet Static Fast)
+Session: 3
+Search Mode: Single Target
