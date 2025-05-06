@@ -17,33 +17,34 @@ logging.basicConfig(
 # Suppress sllurp.verb.inventory INFO logs to reduce verbose output
 logging.getLogger('sllurp.verb.inventory').setLevel(logging.WARNING)
 
-ipaddress = "192.168.0.219" # ip address of the reader
-antennas = "1,2,3,4"
-power = "90"
-session = "0"   # 0 - for single tag test
-                # 1 - for one tag at a time
-                # 2 - for tag dense inventory
-                # 3 - for many new tags
-#reporteveryntags = "1" # self explanitory
-searchmode = "1" # single or dual
-modeidentifier = "0"    # 0 - high rate, low sensitivity
+# Configuration
+IP_ADDRESS = "192.168.0.219"  # Reader IP address
+ANTENNAS = "1"  # Antennas to use
+POWER = "90"  # Transmit power
+SESSION = "2"           # 0 - for single tag test
+                        # 1 - for one tag at a time
+                        # 2 - for tag dense inventory
+                        # 3 - for many new tags
+SEARCH_MODE = "1"  # Single or Dual
+MODE_IDENTIFIER = "2"   # 0 - high rate, low sensitivity
                         # 1 - moderate rate, good sensitivity
                         # 2 - low rate, high sensitivity
                         # 3 - very low rate, very high sensitivity
-# Configuration
+INTERVAL = 2  # Default cycle duration in seconds
+MAX_RETRIES = 3  # Number of retries per cycle
+TIMESTAMP_FIELD = 'LastSeenTimestampUTC'  # Fallback timestamp field
+
+# Base sllurp command
 COMMAND = [
-    "sllurp", "inventory", ipaddress, 
-    "-a", antennas, 
-    "-X", power, 
-    "-s", session, 
-    "--impinj-search-mode", searchmode, 
-    "--mode-identifier", modeidentifier, 
-    "--impinj-extended-configuration", 
+    "sllurp", "inventory", IP_ADDRESS,
+    "-a", ANTENNAS,
+    "-X", POWER,
+    "-s", SESSION,
+    "--impinj-search-mode", SEARCH_MODE,
+    "--mode-identifier", MODE_IDENTIFIER,
+    "--impinj-extended-configuration",
     "--impinj-reports"
 ]
-INTERVAL = 2  # Cycle time
-MAX_RETRIES = 3
-TIMESTAMP_FIELD = 'LastSeenTimestampUTC'  # Options: 'LastSeenTimestampUTC', 'LastSeenTimestampUptime'
 
 def init_csv(csv_file):
     """Initialize CSV file with headers."""
