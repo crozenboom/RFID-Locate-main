@@ -19,13 +19,13 @@ logging.getLogger('sllurp.verb.inventory').setLevel(logging.WARNING)
 
 # Configuration
 IP_ADDRESS = "192.168.0.219"  # Reader IP address
-ANTENNAS = "1"  # Antennas to use
-POWER = "90"  # Transmit power
-SESSION = "2"           # 0 - for single tag test
+ANTENNAS = "1,2,3,4"  # Antennas to use
+POWER = "0"  # Transmit power
+SESSION = "0"           # 0 - for single tag test
                         # 1 - for one tag at a time
                         # 2 - for tag dense inventory
                         # 3 - for many new tags
-SEARCH_MODE = "1"  # Single or Dual
+SEARCH_MODE = "2"  # Single or Dual
 MODE_IDENTIFIER = "2"   # 0 - high rate, low sensitivity
                         # 1 - moderate rate, good sensitivity
                         # 2 - low rate, high sensitivity
@@ -139,10 +139,10 @@ def run_inventory():
 
 def log_tags(tags, csv_file, epc_filter=None):
     """Log tag data to CSV, filtering by EPC if specified."""
-    #antenna_ids = set(tag['antenna'] for tag in tags)
-    #if len(antenna_ids) < 4:
-    #    logging.warning(f"Skipping incomplete cycle with antennas: {antenna_ids}")
-    #    return
+    antenna_ids = set(tag['antenna'] for tag in tags)
+    if len(antenna_ids) < 4:
+        logging.warning(f"Skipping incomplete cycle with antennas: {antenna_ids}")
+        return
     with open(csv_file, 'a', newline='') as csv_file_handle:
         csv_writer = csv.writer(csv_file_handle)
         filtered_count = 0
