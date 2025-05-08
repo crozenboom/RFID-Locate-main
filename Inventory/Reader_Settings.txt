@@ -1,39 +1,69 @@
-Quiet Storage Closet with Static Tags
-Environment: Small, enclosed indoor space with tagged boxes or supplies, minimal activity.
-Tag Motion: Completely static, tags remain in fixed positions on shelves.
-Settings:
-Mode: 1002 (AutoSet Dense Reader Deep Scan)
-Session: 3
-Search Mode: Single Target with Suppression
+# Impinj R420 + Sllurp Reader Settings Reference
 
-Retail Backroom with Slow-Moving Tags
-Environment: Moderately busy indoor area with tagged inventory on carts or shelves.
-Tag Motion: Slow-moving, tags occasionally shifted by staff restocking or organizing.
-Settings:
-Mode: 1004 (AutoSet Static Dense Reader)
-Session: 2
-Search Mode: Single Target
+This document summarizes key reader settings available through the **Sllurp** LLRP client for the **Impinj Speedway R420** RFID reader. Use this as a guide to tune your reader for different use cases like inventory snapshots, real-time tracking, or portal monitoring.
 
-Warehouse Conveyor with Fast-Moving Tags
-Environment: Large indoor space with conveyor belts and some equipment noise.
-Tag Motion: Fast-moving, tags on packages zip through the read zone at high speed.
-Settings:
-Mode: 0 (Max Throughput)
-Session: 3
-Search Mode: Single Target
+---
 
-Outdoor Shipping Yard with Intermittent Tag Motion
-Environment: Open area with tagged pallets or crates, exposed to weather.
-Tag Motion: Intermittent, tags move sporadically as forklifts relocate items.
-Settings:
-Mode: 1 (Hybrid)
-Session: 2
-Search Mode: Single Target
 
-Crowded Event Space with Dynamic Tag Motion
-Environment: Busy indoor or outdoor venue with tagged wristbands or tickets.
-Tag Motion: Dynamic, tags move unpredictably as people walk through entrances.
-Settings:
-Mode: 1003 (AutoSet Static Fast)
-Session: 3
-Search Mode: Single Target
+## Inventory Session (`session`)
+
+Defines how long a tag remains silent after responding to a query.
+
+| Value | Name | Persistence | Description |
+|-------|------|-------------|-------------|
+| 0     | S0   | Very Short  | Tag responds again almost immediately. Best for high-speed environments (e.g., conveyors). |
+| 1     | S1   | Medium      | Default session; good balance for general use. |
+| 2     | S2   | Long        | Tag stays quiet longer after being read. Good for reducing duplicates. |
+| 3     | S3   | Longest     | Longest tag quiet time; ideal for inventory counts where re-reads are undesirable. |
+
+---
+
+## Search Mode (`impinj_search_mode`)
+
+Controls how the reader searches and interacts with tags in different states.
+
+| Value         | Description |
+|---------------|-------------|
+| `SingleTarget` | Fast, reads tags in only one session state (A or B). May miss some tags. |
+| `DualTarget`   | Alternates between A and B — improves tag discovery but adds overhead. |
+| `TagFocus`     | Optimized for re-reads of the same tag. Helps prevent false positives. |
+| `DeepScan`     | Tries harder to read difficult or distant tags — slower, but thorough. |
+| `DenseReader`  | Minimizes RF interference in environments with many readers. |
+
+---
+
+## Report Frequency (`report_every_n_tags`)
+
+Controls how often tag reports are emitted.
+
+| Value | Description |
+|-------|-------------|
+| 1     | Report every tag read (default) |
+| n > 1 | Report every nth tag seen. Helps reduce network traffic and processing. |
+
+---
+
+## Reader Mode (`reader_mode`)
+
+Affects low-level RF behavior and how quickly tags are inventoried.
+
+| Value                 | Description |
+|-----------------------|-------------|
+| `AutoSetDenseReader`  | Auto-optimized for RF-noisy environments |
+| `DenseReaderM8`       | Specific tuning for very dense reader setups |
+| `MaxThroughput`       | Prioritizes read speed over reliability |
+| `Hybrid`              | Balance between speed and read stability |
+
+---
+
+## Mode Index (`mode_index`)
+
+Predefined RF profiles that affect dwell time, hopping, and power.  
+These vary by region and reader model. Example values:
+
+| Index | Typical Use |
+|-------|-------------|
+| 1002  | US dense mode |
+| 1003  | US fast mode |
+| 1004  | EU mode |
+| ...   | Refer to Impinj docs or query supported values via Sllurp |
