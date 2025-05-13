@@ -1,6 +1,6 @@
 raw_CSV_filename, path_#, speed, orientation, path_type, center_x_true, center_y_true, radius_true, 
-movetest3-1, 5, slow, 1, circle, 
-movetest3-2, 5, slow, 2, circle, 
-movetest3-3, 5, slow, 3, circle, 
-movetest3-4, 5, slow, 4, circle, 
-movetest3-5, 5, slow, 1, circle, 
+movetest3-1, 5, slow, 1, circle, 1, 1, 1
+movetest3-2, 5, slow, 2, circle, 1, 1, 1
+movetest3-3, 5, slow, 3, circle, 1, 1, 1
+movetest3-4, 5, slow, 4, circle, 1, 1, 1
+movetest3-5, 5, slow, 1, circle, 1, 1, 1
