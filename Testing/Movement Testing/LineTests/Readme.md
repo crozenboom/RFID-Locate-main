@@ -1,12 +1,13 @@
-MoveTest1 
+# MoveTest1 
  - line 1 goes top to bottom through the center mark
  - line 2 goes right to left through the center mark
-MoveTest2
+# MoveTest2
  - line 3 goes from antenna 2 to antenna 4 through the center mark
  - line 4 goes from antenna 3 to antenna 1 through the center mark
 
 
-LineMetadata.csv contains information about the line path being tested for each csv file contained in the MoveTest# Folders.
+# LineMetadata.csv 
+Contains information about the line path being tested for each csv file contained in the MoveTest# Folders.
 Details concerning this data are as follows:
  - Path # is defined by the points contained by the line (not the order in which the points are collected -> i.e. right to left vs left to right for a straight line with the same start and end points is logged as the same line #)
  - Speed is loosely defined. Slow was Donald using a step per 1'x1' block while walking, and fast was Donald using a step per 2 1'x1' blocks while walking.
