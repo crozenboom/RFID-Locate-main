@@ -1,3 +1,5 @@
+# CircleTest0
+- arbitrary test, is not found in metadata
 # CircleTest1 
 - clockwise in each orientation slow then fast
 - counterclockwise in each orientation slow then fast
@@ -13,7 +15,10 @@
 - for 1.5' radius, center point in the center of the antenna grid
  - clockwise, slow then fast, orientation 5
  - counterclockwise, slow then fast, orientation 5
-
+# CircleTest5
+- for 8.5' radius, center point in the center of the antenna grid
+ - clockwise, slow then fast, orientation 5
+ - counterclockwise, slow then fast, orientation 5
 
 # CircleMetadata.csv 
 Contains information about the line path being tested for each csv file contained in the MoveTest# Folders.
