@@ -10,7 +10,7 @@
  - clockwise, slow then fast, orientation 5
  - counterclockwise, slow then fast, orientation 5 
 # CircleTest4
-- for 1' radius, center point in the center of the antenna grid
+- for 1.5' radius, center point in the center of the antenna grid
  - clockwise, slow then fast, orientation 5
  - counterclockwise, slow then fast, orientation 5
 
