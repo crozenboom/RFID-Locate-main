@@ -1,7 +1,10 @@
 # CircleTest1 
 - clockwise in each orientation slow then fast
 - counterclockwise in each orientation slow then fast
-
+# CircleTest2
+-for 4.5' radius and 5.5' radius, central
+- clockwise slow then fast orientation 5
+- counterclockwise slow then fast orientation 5 
 
 
 # CircleMetadata.csv 
