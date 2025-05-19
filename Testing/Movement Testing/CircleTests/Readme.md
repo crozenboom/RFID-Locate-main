@@ -2,9 +2,9 @@
 - clockwise in each orientation slow then fast
 - counterclockwise in each orientation slow then fast
 # CircleTest2
--for 4.5' radius and 5.5' radius, central
-- clockwise slow then fast orientation 5
-- counterclockwise slow then fast orientation 5 
+- for 4.5' radius and 5.5' radius, center point in the center of the antenna grid
+ - clockwise, slow then fast, orientation 5
+ - counterclockwise, slow then fast, orientation 5 
 
 
 # CircleMetadata.csv 
@@ -17,6 +17,7 @@ Details concerning this data are as follows:
    - 2 -> tag is parallel to the vector between antennas 2 and 3 (or 1 and 4)
    - 3 -> tag is parallel to the face of antenna 3 (or 1)
    - 4 -> tag is parallel to the face of antenna 4 (or 2)
+   - 5 -> tag is always facing outward (away from the center point of the circle
   
    
 
