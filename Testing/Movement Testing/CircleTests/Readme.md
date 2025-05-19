@@ -2,10 +2,18 @@
 - clockwise in each orientation slow then fast
 - counterclockwise in each orientation slow then fast
 # CircleTest2
-- for 4.5' radius and 5.5' radius, center point in the center of the antenna grid
+- for 4.5' radius, center point in the center of the antenna grid
+ - clockwise, slow then fast, orientation 5
+ - counterclockwise, slow then fast, orientation 5
+# CircleTest3
+- for 5.5' radius and 5.5' radius, center point in the center of the antenna grid
  - clockwise, slow then fast, orientation 5
  - counterclockwise, slow then fast, orientation 5 
-
+# CircleTest4
+- for .5' radius and 5.5' radius, center point in the center of the antenna grid
+ - clockwise, slow then fast, orientation 5
+ - counterclockwise, slow then fast, orientation 5
+ - tag was attached to Donalds belt instead of being held out on the cardboard stick. (Affected data)
 
 # CircleMetadata.csv 
 Contains information about the line path being tested for each csv file contained in the MoveTest# Folders.
