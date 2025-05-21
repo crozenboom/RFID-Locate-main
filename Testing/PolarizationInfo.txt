@@ -1,0 +1,60 @@
+Impact of Antenna Polarization and Frequency Band in RFID Testing
+
+In our RFID test setup, we’re using four antennas placed in a 15x15 ft area:
+	•	Antenna 1: S9028PCLJ (LHCP, 902–928 MHz)
+	•	Antenna 2: S8658PL (RHCP, 865–868 MHz)
+	•	Antenna 3: S9028PCRJ (RHCP, 902–928 MHz)
+	•	Antenna 4: S9028PCLJ (LHCP, 902–928 MHz)
+
+1. Polarization Mismatch (Left-Hand vs. Right-Hand Circular Polarization)
+
+Antennas 1 and 4 are left-hand circular polarized (LHCP), while Antennas 2 and 3 are right-hand 
+circular polarized (RHCP). Since LHCP and RHCP fields are orthogonal, they don’t effectively communicate 
+with one another. This means we may experience reduced read range and inconsistent detection in regions 
+where tags are primarily exposed to antennas with opposite polarization.
+
+We’re using linearly polarized tags, which are commonly paired with circularly polarized antennas in 
+practice. Circular antennas are often preferred when tag orientation may vary, as they can energize and 
+read tags at any rotation angle. However, there is a typical ~3 dB loss in signal strength compared to 
+a perfectly aligned linear antenna–tag pair. This tradeoff is usually acceptable for real-world robustness.
+
+If we had used linearly polarized antennas instead, we could have maximized read strength — but only if 
+the tags’ orientations were consistently aligned with the antenna field. A 90° rotation would result in 
+near-zero coupling, making linear antennas less forgiving in dynamic or uncontrolled environments.
+
+If we were using circularly polarized tags (less common), matching antenna and tag polarizations 
+(e.g., RHCP-RHCP) would offer optimal performance, while opposite pairs (e.g., RHCP-LHCP) would yield 
+near-zero coupling — significantly impacting coverage.
+
+2. Frequency Band Mismatch (902–928 MHz vs. 865–868 MHz)
+
+Antenna 2 (S8658PL) is designed for the ETSI band (865–868 MHz), while the other three antennas operate 
+in the FCC band (902–928 MHz).
+
+If we configure our RFID reader to operate in the FCC band, Antenna 2 will be outside its designed 
+frequency range, which will likely cause:
+	•	Severe signal attenuation
+	•	Reduced read sensitivity
+	•	Poor tag detection or total read failure
+	•	Potential signal reflections or interference artifacts across the environment
+
+Conversely, if we adjust the reader to operate in the ETSI band to accommodate Antenna 2, then Antennas 
+1, 3, and 4 — all tuned for FCC frequencies — will operate suboptimally. This mismatch introduces inconsistent 
+antenna performance and may distort our test results.
+
+⸻
+
+Recommendations
+	•	We should use antennas with matching circular polarization (all RHCP or all LHCP) to ensure uniform 
+    coverage. Alternatively, linearly polarized antennas could offer stronger signal strength in controlled 
+    environments with consistent tag orientation.
+    
+	•	All antennas should operate in the same regulatory frequency band (either FCC or ETSI) to avoid degraded 
+    performance.
+
+	•	We should continue using circularly polarized antennas with linear tags, as this provides orientation 
+    independence — ideal for our testing environment. We just need to account for the small signal loss compared 
+    to a perfectly aligned linear setup.
+
+	•	Finally, we should monitor tag orientation and antenna placement closely when evaluating read patterns, 
+    to ensure we correctly attribute any performance differences.
