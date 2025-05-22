@@ -13,44 +13,9 @@ Antenna 4: (0, 0)
 
 
 TAG LOCATIONS
-A single RFID tag was placed at each of 36 points on a 6x6 subgrid within the 7x7 ft area, with 1 ft spacing. The locations are numbered 1 to 36 as follows:
+A single RFID tag was placed at each of 36 points on a 6x6 subgrid within the 7x7 ft area, with 1 ft spacing. 
+Names of the CSV correspond to their coordinates.
 
-(1, 6) - Test6-1.csv
-(2, 6) - Test6-2.csv
-(3, 6) - Test6-3.csv
-(4, 6) - Test6-4.csv
-(5, 6) - Test6-5.csv
-(6, 6) - Test6-6.csv
-(1, 5) - Test6-7.csv
-(2, 5) - Test6-8.csv
-(3, 5) - Test6-9.csv
-(4, 5) - Test6-10.csv
-(5, 5) - Test6-11.csv
-(6, 5) - Test6-12.csv
-(1, 4) - Test6-13.csv
-(2, 4) - Test6-14.csv
-(3, 4) - Test6-15.csv
-(4, 4) - Test6-16.csv
-(5, 4) - Test6-17.csv
-(6, 4) - Test6-18.csv
-(1, 3) - Test6-19.csv
-(2, 3) - Test6-20.csv
-(3, 3) - Test6-21.csv
-(4, 3) - Test6-22.csv
-(5, 3) - Test6-23.csv
-(6, 3) - Test6-24.csv
-(1, 2) - Test6-25.csv
-(2, 2) - Test6-26.csv
-(3, 2) - Test6-27.csv
-(4, 2) - Test6-28.csv
-(5, 2) - Test6-29.csv
-(6, 2) - Test6-30.csv
-(1, 1) - Test6-31.csv
-(2, 1) - Test6-32.csv
-(3, 1) - Test6-33.csv
-(4, 1) - Test6-34.csv
-(5, 1) - Test6-35.csv
-(6, 1) - Test6-36.csv
 
 PROCESS
 
