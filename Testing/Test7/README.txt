@@ -13,24 +13,8 @@ Antenna 3: (7, 0)
 Antenna 4: (0, 0)
 
 TAG LOCATIONS
-A single RFID tag was placed at each of 16 points on a 3x3 subgrid within the 7x7 ft area, with 1 ft spacing, centered in the grid. The locations are numbered 1 to 16 as follows:
-
-(2, 5) - Test7-1.csv
-(3, 5) - Test7-2.csv
-(4, 5) - Test7-3.csv
-(5, 5) - Test7-4.csv
-(2, 4) - Test7-5.csv
-(3, 4) - Test7-6.csv
-(4, 4) - Test7-7.csv
-(5, 4) - Test7-8.csv
-(2, 3) - Test7-9.csv
-(3, 3) - Test7-10.csv
-(4, 3) - Test7-11.csv
-(5, 3) - Test7-12.csv
-(2, 2) - Test7-13.csv
-(3, 2) - Test7-14.csv
-(4, 2) - Test7-15.csv
-(5, 2) - Test7-16.csv
+A single RFID tag was placed at each of 16 points on a 3x3 subgrid within the 7x7 ft area, with 1 ft spacing, centered in the grid. 
+Names of the CSV correspond to their coordinates
 
 PROCESS
 
