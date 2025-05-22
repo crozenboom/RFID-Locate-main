@@ -15,16 +15,7 @@ Antenna 4: (3, 0)
 
 TAG LOCATIONS:
 Tags were placed and moved at 9 points on the grid, forming a 3x3 subgrid with 2 ft spacing:
-
-(1, 5)
-(3, 5)
-(5, 5)
-(1, 3)
-(3, 3)
-(5, 3)
-(1, 1)
-(3, 1)
-(5, 1)
+Names of the CSV correspond to their coordinates
 
 
 PROCESS:
