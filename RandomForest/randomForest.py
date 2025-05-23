@@ -75,7 +75,7 @@ y = pivot_data[['x_coord', 'y_coord']]  # Predict both x and y coordinates
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Train Random Forest model with 100 trees
-rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
+rf_model = RandomForestRegressor(n_estimators=400, random_state=42)
 rf_model.fit(X_train, y_train)
 
 ######################################################
