@@ -47,18 +47,18 @@ all_data = pd.concat(data_list, ignore_index=True)
 ######################################################
 
 # Pivot data to create features per antenna for each location
-pivot_data = all_data.groupby(['x_coord', 'y_coord', 'antenna']).agg({
-    'rssi': 'mean',
-    'phase_angle': 'mean',
-    'channel_index': 'mean',
-    'doppler_frequency': 'mean'
-}).unstack()
+#pivot_data = all_data.groupby(['x_coord', 'y_coord', 'antenna']).agg({
+#    'rssi': 'mean',
+#    'phase_angle': 'mean',
+#    'channel_index': 'mean',
+#    'doppler_frequency': 'mean'
+#}).unstack()
 
 # Alternative: Use only rssi and phase_angle (uncomment to try)
-# pivot_data = all_data.groupby(['x_coord', 'y_coord', 'antenna']).agg({
-#     'rssi': 'mean',
-#     'phase_angle': 'mean'
-# }).unstack()
+pivot_data = all_data.groupby(['x_coord', 'y_coord', 'antenna']).agg({
+     'rssi': 'mean',
+     'phase_angle': 'mean'
+ }).unstack()
 
 # Flatten column names, e.g., rssi_Ant1, rssi_Ant2, etc.
 pivot_data.columns = [f'{col[0]}_Ant{int(col[1])}' for col in pivot_data.columns]
@@ -89,22 +89,23 @@ y = pivot_data[['x_coord', 'y_coord']]  # Predict both x and y coordinates
 scaler = StandardScaler()
 X = scaler.fit_transform(X)
 
+print(X)
 # Split data into training (80%) and testing (20%) sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Define hyperparameter grid for tuning
 param_grid = {
-    'n_estimators': [100, 200, 400, 600, 800],
-    'max_depth': [5, 10, 15, 20, 25],
-    'min_samples_split': [2, 5, 10, 15],
-    'min_samples_leaf': [1, 2, 4, 6]
+    'n_estimators': [200, 400, 600, 800, 1000],
+    'max_depth': [10, 15, 20, 25, 30],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 3]
 }
 
 # Perform randomized search with cross-validation
 grid_search = RandomizedSearchCV(
     RandomForestRegressor(random_state=42),
     param_grid,
-    n_iter=20,  # Test 20 random combinations
+    n_iter=50,  # Test n random combinations
     cv=5,
     scoring='neg_mean_squared_error',
     n_jobs=-1  # Use all available CPU cores
@@ -127,7 +128,7 @@ print(f"Test Set MSE (x, y): {mse[0]:.2f}, {mse[1]:.2f}")
 
 # Predict coordinates for the test set
 y_pred = rf_model.predict(X_test)
-print(f"Predicted coordinates for the test set: {y_pred}")
+#print(f"Predicted coordinates for the test set: {y_pred}")
 
 ######################################################
 #-------------------- PLOTTING -----------------------#
