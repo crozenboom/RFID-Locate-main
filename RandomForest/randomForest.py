@@ -75,7 +75,7 @@ for i, (ax, ay) in enumerate(antennas, 1):
 pivot_data = pivot_data.fillna(pivot_data.mean())
 
 # Print pivot_data for inspection
-print(pivot_data)
+#print(pivot_data)
 
 ######################################################
 #----------------- MODEL TRAINING --------------------#
@@ -89,14 +89,15 @@ y = pivot_data[['x_coord', 'y_coord']]  # Predict both x and y coordinates
 scaler = StandardScaler()
 X = scaler.fit_transform(X)
 
-print(X)
+#print(X)
+
 # Split data into training (80%) and testing (20%) sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Define hyperparameter grid for tuning
 param_grid = {
-    'n_estimators': [200, 400, 600, 800, 1000],
-    'max_depth': [10, 15, 20, 25, 30],
+    'n_estimators': [800, 1000, 1500, 2000],
+    'max_depth': [30, 35, 40, 45, 50, 55],
     'min_samples_split': [2, 5, 10],
     'min_samples_leaf': [1, 2, 3]
 }
@@ -105,7 +106,7 @@ param_grid = {
 grid_search = RandomizedSearchCV(
     RandomForestRegressor(random_state=42),
     param_grid,
-    n_iter=50,  # Test n random combinations
+    n_iter=60,  # Test n random combinations
     cv=5,
     scoring='neg_mean_squared_error',
     n_jobs=-1  # Use all available CPU cores
@@ -134,36 +135,37 @@ y_pred = rf_model.predict(X_test)
 #-------------------- PLOTTING -----------------------#
 ######################################################
 
-# Create scatter plot of actual vs. predicted coordinates
-plt.figure(figsize=(8, 8))  # Square figure for equal scaling
-plt.scatter(y_test['x_coord'], y_test['y_coord'], color='blue', label='Actual', alpha=0.5, s=100)
-plt.scatter(y_pred[:, 0], y_pred[:, 1], color='red', label='Predicted', alpha=0.5, s=100)
+# Create scatter plot of actual vs. predicted coordinates for all locations
+plt.figure(figsize=(10, 10))  # Larger figure for clarity
+plt.scatter(y['x_coord'], y['y_coord'], color='blue', label='Actual', alpha=0.5, s=100)
+y_pred_all = rf_model.predict(X)  # Predict for all data
+plt.scatter(y_pred_all[:, 0], y_pred_all[:, 1], color='red', label='Predicted', alpha=0.5, s=100)
 
 # Add dotted lines between actual and predicted points
-for actual, pred in zip(y_test.values, y_pred):
-    plt.plot([actual[0], pred[0]], [actual[1], pred[1]], color='black', linestyle=':', linewidth=1)
+for actual, pred in zip(y.values, y_pred_all):
+    plt.plot([actual[0], pred[0]], [actual[1], pred[1]], color='black', linestyle=':', linewidth=0.5)
 
-# Plot 5 random test points with actual and predicted coordinates
+# Label 10 random points with actual and predicted coordinates
 np.random.seed(42)  # For reproducibility
-random_indices = np.random.choice(len(y_test), size=5, replace=False)
+random_indices = np.random.choice(len(y), size=10, replace=False)
 for idx in random_indices:
-    actual = y_test.values[idx]
-    pred = y_pred[idx]
+    actual = y.values[idx]
+    pred = y_pred_all[idx]
     # Label actual point
     plt.annotate(f'A: ({actual[0]:.1f}, {actual[1]:.1f})', 
                  (actual[0], actual[1]), 
-                 xytext=(5, 5), textcoords='offset points', fontsize=8, color='blue')
+                 xytext=(5, 5), textcoords='offset points', fontsize=6, color='blue')
     # Label predicted point
     plt.annotate(f'P: ({pred[0]:.1f}, {pred[1]:.1f})', 
                  (pred[0], pred[1]), 
-                 xytext=(5, 5), textcoords='offset points', fontsize=8, color='red')
+                 xytext=(5, 5), textcoords='offset points', fontsize=6, color='red')
 
 # Plot antenna locations for context
 antennas = [(0, 0), (0, 15), (15, 15), (15, 0)]
 plt.scatter([x for x, y in antennas], [y for x, y in antennas], color='green', marker='^', s=200, label='Antennas')
 plt.xlabel('X Coordinate')
 plt.ylabel('Y Coordinate')
-plt.title('Actual vs. Predicted RFID Tag Coordinates (8x8 Grid in 13x13 Area)')
+plt.title('Actual vs. Predicted RFID Tag Coordinates (All 64 Locations in 8x8 Grid)')
 plt.xlim(0, 15)  # Cover tags (1 to 14) and antennas
 plt.ylim(0, 15)
 plt.grid(True)
@@ -171,4 +173,4 @@ plt.legend()
 plt.savefig('coordinates_plot.png')
 plt.close()
 
-print("Scatter plot saved as 'coordinates_plot.png'")
+print("Scatter plot for all locations saved as 'coordinates_plot_all.png'")
