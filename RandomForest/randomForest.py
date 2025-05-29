@@ -173,4 +173,4 @@ plt.legend()
 plt.savefig('coordinates_plot.png')
 plt.close()
 
-print("Scatter plot for all locations saved as 'coordinates_plot_all.png'")
+print("Scatter plot for all locations saved as 'coordinates_plot.png'")
