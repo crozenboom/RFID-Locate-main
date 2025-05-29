@@ -2,13 +2,10 @@ import pandas as pd
 import numpy as np
 import glob
 import os
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.svm import SVR
-from sklearn.multioutput import MultiOutputRegressor
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
-from lightgbm import LGBMRegressor
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
@@ -18,7 +15,7 @@ warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 ######################################################
 
 # Directory for CSV files
-data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Test8/'
+data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Movement Testing/CircleTests/CircleTest0'
 
 ######################################################
 #--------- DATA LOADING AND PER-LOCATION PROCESSING --#
@@ -97,80 +94,41 @@ X = scaler.fit_transform(X)
 # Split data into training (80%) and testing (20%) sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Define models to compare
-models = {
-    'RandomForest': RandomForestRegressor(n_estimators=1000, max_depth=30, min_samples_split=2, min_samples_leaf=1, max_features='sqrt', random_state=42, n_jobs=-1),
-    'GradientBoosting': GradientBoostingRegressor(n_estimators=1000, learning_rate=0.05, max_depth=5, random_state=42),
-    'SVR': MultiOutputRegressor(SVR(kernel='rbf', C=1.0, epsilon=0.1)),
-    'LightGBM': MultiOutputRegressor(LGBMRegressor(n_estimators=1000, learning_rate=0.05, max_depth=5, random_state=42))
+# Define hyperparameter grid for tuning
+param_grid = {
+    'n_estimators': [800, 1000, 1500, 2000],
+    'max_depth': [30, 35, 40, 45, 50],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 3]
 }
 
-# Train and evaluate each model
-results = {}
-best_model = None
-best_mse_avg = float('inf')
+# Perform randomized search with cross-validation
+grid_search = RandomizedSearchCV(
+    RandomForestRegressor(random_state=42),
+    param_grid,
+    n_iter=60,  # Test n random combinations
+    cv=5,
+    scoring='neg_mean_squared_error',
+    n_jobs=-1  # Use all available CPU cores
+)
+grid_search.fit(X_train, y_train)
 
-for name, model in models.items():
-    # Train the model
-    model.fit(X_train, y_train)
-    
-    # Predict on test set
-    y_pred = model.predict(X_test)
-    
-    # Calculate MSE for x and y coordinates
-    mse = mean_squared_error(y_test, y_pred, multioutput='raw_values')
-    mse_avg = np.mean(mse)  # Average MSE across x and y for model selection
-    results[name] = {'mse_x': mse[0], 'mse_y': mse[1], 'mse_avg': mse_avg}
-    
-    # Update best model if average MSE is lower
-    if mse_avg < best_mse_avg:
-        best_mse_avg = mse_avg
-        best_model = (name, model)
-    
-    print(f"{name} Test Set MSE (x, y): {mse[0]:.2f}, {mse[1]:.2f} | Average MSE: {mse_avg:.2f}")
+# Get best model and parameters
+rf_model = grid_search.best_estimator_
+print(f"Best parameters: {grid_search.best_params_}")
+print(f"Best cross-validation MSE: {-grid_search.best_score_:.2f}")
 
-# Print best model
-print(f"\nBest Model: {best_model[0]} with Average MSE: {best_mse_avg:.2f}")
-
-# Define hyperparameter grid for tuning
-# param_grid = {
-#     'n_estimators': [800, 1000, 1500, 2000],
-#     'max_depth': [30, 35, 40, 45, 50],
-#     'min_samples_split': [2, 5, 10],
-#     'min_samples_leaf': [1, 2, 3]
-# }
-
-# # Perform randomized search with cross-validation
-# grid_search = RandomizedSearchCV(
-#     RandomForestRegressor(random_state=42),
-#     param_grid,
-#     n_iter=60,  # Test n random combinations
-#     cv=5,
-#     scoring='neg_mean_squared_error',
-#     n_jobs=-1  # Use all available CPU cores
-# )
-# grid_search.fit(X_train, y_train)
-
-# # Get best model and parameters
-# rf_model = grid_search.best_estimator_
-# print(f"Best parameters: {grid_search.best_params_}")
-# print(f"Best cross-validation MSE: {-grid_search.best_score_:.2f}")
-
-# # Evaluate model on test set
-# y_pred = rf_model.predict(X_test)
-# mse = mean_squared_error(y_test, y_pred, multioutput='raw_values')
-# print(f"Test Set MSE (x, y): {mse[0]:.2f}, {mse[1]:.2f}")
+# Evaluate model on test set
+y_pred = rf_model.predict(X_test)
+mse = mean_squared_error(y_test, y_pred, multioutput='raw_values')
+print(f"Test Set MSE (x, y): {mse[0]:.2f}, {mse[1]:.2f}")
 
 ######################################################
 #------------------- PREDICTION ---------------------#
 ######################################################
 
-# Use best model for predictions
-best_model_name, best_model_instance = best_model
-y_pred = best_model_instance.predict(X_test)
-
 # Predict coordinates for the test set
-#y_pred = rf_model.predict(X_test)
+y_pred = rf_model.predict(X_test)
 #print(f"Predicted coordinates for the test set: {y_pred}")
 
 ######################################################
@@ -180,8 +138,7 @@ y_pred = best_model_instance.predict(X_test)
 # Create scatter plot of actual vs. predicted coordinates for all locations
 plt.figure(figsize=(10, 10))  # Larger figure for clarity
 plt.scatter(y['x_coord'], y['y_coord'], color='blue', label='Actual', alpha=0.5, s=100)
-y_pred_all = best_model_instance.predict(X)  # Predict for all data
-#y_pred_all = rf_model.predict(X)  # Predict for all data
+y_pred_all = rf_model.predict(X)  # Predict for all data
 plt.scatter(y_pred_all[:, 0], y_pred_all[:, 1], color='red', label='Predicted', alpha=0.5, s=100)
 
 # Add dotted lines between actual and predicted points
@@ -213,7 +170,7 @@ plt.xlim(0, 15)  # Cover tags (1 to 14) and antennas
 plt.ylim(0, 15)
 plt.grid(True)
 plt.legend()
-plt.savefig('coordinates_plot.png')
+plt.savefig('randomForest.png')
 plt.close()
 
-print("Scatter plot for all locations saved as 'coordinates_plot.png'")
+print("Scatter plot for all locations saved as 'randomForest.png'")
