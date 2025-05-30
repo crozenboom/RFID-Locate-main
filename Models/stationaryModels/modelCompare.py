@@ -60,9 +60,9 @@ all_data = pd.concat(data_list, ignore_index=True)
 # Pivot data to create features per antenna for each location
 pivot_data = all_data.groupby(['x_coord', 'y_coord', 'antenna']).agg({
     'rssi': 'mean',
-    'phase_angle': 'mean',
-    'channel_index': 'mean',
-    'doppler_frequency': 'mean'
+    'phase_angle': 'mean'
+    #'channel_index': 'mean',
+    #'doppler_frequency': 'mean'
 }).unstack()
 
 # Flatten column names, e.g., rssi_Ant1, rssi_Ant2, etc.
@@ -90,7 +90,9 @@ y = pivot_data[['x_coord', 'y_coord']]
 
 # Scale features to improve model performance
 scaler = StandardScaler()
-X = scaler.fit_transform(X)
+X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
+#scaler = StandardScaler()
+#X = scaler.fit_transform(X)
 
 # Split data (80/20)
 X_train, X_test, y_train, y_test = train_test_split(
@@ -102,9 +104,10 @@ models_params = {
     'RandomForest': {
         'model': RandomForestRegressor(random_state=42, n_jobs=-1),
         'param_grid': {
-            'n_estimators': [100, 500],
-            'max_depth': [5, 10, None],
-            'min_samples_split': [2, 5],
+            'n_estimators': [800, 1000, 1500, 2000],
+            'max_depth': [30, 35, 40, 45, 50],
+            'min_samples_split': [2, 5, 10],
+            'min_samples_leaf': [1, 2, 3],
             'max_features': ['sqrt', 'log2']
         }
     },
