@@ -21,20 +21,34 @@ base_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/'
 circle_base_dir = os.path.join(base_dir, 'Testing/MovementTesting/CircleTests')
 metadata_file = os.path.join(circle_base_dir, 'CircleMetadata.csv')
 output_dir = os.path.join(base_dir, 'Models/movingModels')
-test_file = os.path.join(circle_base_dir, 'CircleTest1', 'circletest1-1.csv')  # User-specified test file
+
+# Test files (corrected to match metadata)
+test_files = [
+    os.path.join(circle_base_dir, 'CircleTest1', 'circletest1-1.csv'),  # Radius 3.5
+    os.path.join(circle_base_dir, 'CircleTest2', 'circletest2-1.csv'),  # Radius 4.5
+    os.path.join(circle_base_dir, 'CircleTest3', 'circletest3-1.csv'),  # Radius 5.5
+    os.path.join(circle_base_dir, 'CircleTest4', 'circletest4-1.csv'),  # Radius 1.5
+    os.path.join(circle_base_dir, 'CircleTest5', 'circletest5-1.csv')   # Radius 8.5
+]
 
 # Load metadata
 try:
     readme_data = pd.read_csv(metadata_file)
+    readme_data.columns = readme_data.columns.str.strip()  # Remove whitespace
 except FileNotFoundError:
     print(f"Metadata file not found: {metadata_file}")
     exit(1)
+
+# Debug: Check metadata
+print("Metadata shape:", readme_data.shape)
+print("Metadata columns:", readme_data.columns.tolist())
+print("Unique raw_CSV_filename:", readme_data['raw_CSV_filename'].unique())
 
 # Antennas
 antennas = [(0, 0), (0, 15), (15, 15), (15, 0)]
 
 # Trilateration functions
-def rssi_to_distance(rssi, P_tx=0, PL_0=-40, n=2):
+def rssi_to_distance(rssi, P_tx=0, PL_0=-30, n=2.5):
     return 10 ** ((P_tx - rssi - PL_0) / (10 * n))
 
 def phase_to_distance(phase_angle, wavelength=0.33):
@@ -45,7 +59,8 @@ def trilaterate(distances, antenna_positions):
     def residuals(x, distances, positions):
         return [np.sqrt((x[0] - p[0])**2 + (x[1] - p[1])**2) - d for p, d in zip(positions, distances)]
     initial_guess = [7.5, 7.5]
-    result = least_squares(residuals, initial_guess, args=(distances, antenna_positions))
+    bounds = ([0, 0], [15, 15])  # Constrain to 15x15 grid
+    result = least_squares(residuals, initial_guess, args=(distances, antenna_positions), bounds=bounds)
     return result.x
 
 def project_to_circle(x, y, center_x=7.5, center_y=7.5, radius=3.5):
@@ -57,45 +72,50 @@ def project_to_circle(x, y, center_x=7.5, center_y=7.5, radius=3.5):
     scale = radius / dist
     return center_x + dx * scale, center_y + dy * scale
 
-# Debug: Check metadata
-print("Metadata shape:", readme_data.shape)
-print("Metadata columns:", readme_data.columns.tolist())
+# Angular feature
+def compute_angle(x, y, center_x=7.5, center_y=7.5):
+    return np.arctan2(y - center_y, x - center_x)
 
 ######################################################
-#--------------- TRAIN MODELS ----------------#
+#--------------- TRAIN SINGLE MODEL ----------------#
 ######################################################
 
-def train_circle_test(circle_test_num):
-    model_path = os.path.join(output_dir, f'best_model_dynamic_CircleTest{circle_test_num}.pkl')
-    scaler_path = os.path.join(output_dir, f'scaler_dynamic_CircleTest{circle_test_num}.pkl')
-    
-    # Skip if model exists
-    if os.path.exists(model_path) and os.path.exists(scaler_path):
-        print(f"Model and scaler for CircleTest{circle_test_num} already exist. Skipping training.")
-        return
+model_path = os.path.join(output_dir, 'best_model_dynamic.pkl')
+scaler_path = os.path.join(output_dir, 'scaler_dynamic.pkl')
 
-    print(f"\nTraining model for CircleTest{circle_test_num}")
-    circle_data_dir = os.path.join(circle_base_dir, f'CircleTest{circle_test_num}')
-    files = glob.glob(os.path.join(circle_data_dir, 'circletest*.csv'))
-    
-    if not files:
-        print(f"No CSV files found in {circle_data_dir}")
-        return
+# Train model if it doesn't exist
+if not (os.path.exists(model_path) and os.path.exists(scaler_path)):
+    print("\nTraining model on all CircleTests")
+    all_files = []
+    for i in range(1, 6):
+        circle_data_dir = os.path.join(circle_base_dir, f'CircleTest{i}')
+        files = glob.glob(os.path.join(circle_data_dir, 'circletest*.csv'))
+        all_files.extend(files)
+
+    print("Discovered CSV files:", [os.path.basename(f) for f in all_files])
+    if not all_files:
+        print(f"No CSV files found in {circle_base_dir}")
+        exit(1)
 
     data_list = []
-    for file in files:
+    raw_trilaterated_points = []
+    for file in all_files:
         filename = os.path.basename(file).replace('.csv', '')
-        meta = readme_data[readme_data['raw_CSV_filename'] == filename]
-        if meta.empty:
-            print(f"No metadata for {filename}. Skipping.")
-            continue
+        meta_key = filename.lower()
+        print(f"Processing file: {filename}, meta_key: {meta_key}")
 
-        radius = meta['radius_true'].iloc[0]
         df = pd.read_csv(file)
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
         df['test_id'] = filename
 
-        # Pivot to get features per antenna
+        meta = readme_data[readme_data['raw_CSV_filename'] == meta_key]
+        if meta.empty:
+            print(f"No metadata for {meta_key}. Skipping.")
+            continue
+
+        radius = meta['radius_true'].iloc[0]
+        print(f"Radius for {meta_key}: {radius}")
+
         pivot_temp = df.groupby(['test_id', 'timestamp', 'antenna']).agg({
             'rssi': 'mean',
             'phase_angle': 'mean',
@@ -104,7 +124,6 @@ def train_circle_test(circle_test_num):
         pivot_temp.columns = [f'{col[0]}_Ant{int(col[1])}' for col in pivot_temp.columns]
         pivot_temp = pivot_temp.reset_index()
 
-        # Compute true (x, y) via trilateration and projection
         distances = []
         for idx, row in pivot_temp.iterrows():
             dists = []
@@ -123,39 +142,66 @@ def train_circle_test(circle_test_num):
             dists = np.nan_to_num(dists, nan=np.nanmean(dists))
             try:
                 x, y = trilaterate(dists, antennas)
+                raw_trilaterated_points.append({'x': x, 'y': y, 'radius': radius})
                 x_true, y_true = project_to_circle(x, y, radius=radius)
                 row['x_coord'] = x_true
                 row['y_coord'] = y_true
                 distances.append(row)
             except:
                 continue
-        
+
         if distances:
             data_list.append(pd.DataFrame(distances))
 
     if not data_list:
-        print(f"No valid data for CircleTest{circle_test_num}")
-        return
+        print("No valid data loaded. Exiting.")
+        exit(1)
 
     all_data = pd.concat(data_list, ignore_index=True)
 
-    # Debug: Check data
-    print(f"CircleTest{circle_test_num} raw data shape:", all_data.shape)
-    print(f"Unique tests:", all_data['test_id'].unique())
+    # Debug: Data distribution
+    print("Raw data shape:", all_data.shape)
+    print("Unique tests:", all_data['test_id'].unique())
+    print("Training data quadrant counts:")
+    print("Bottom-left (x<7.5, y<7.5):", ((all_data['x_coord'] < 7.5) & (all_data['y_coord'] < 7.5)).sum())
+    print("Bottom-right (x>7.5, y<7.5):", ((all_data['x_coord'] > 7.5) & (all_data['y_coord'] < 7.5)).sum())
+    print("Top-left (x<7.5, y>7.5):", ((all_data['x_coord'] < 7.5) & (all_data['y_coord'] > 7.5)).sum())
+    print("Top-right (x>7.5, y>7.5):", ((all_data['x_coord'] > 7.5) & (all_data['y_coord'] > 7.5)).sum())
+
+    # Plot raw trilaterated points
+    raw_tril_df = pd.DataFrame(raw_trilaterated_points)
+    plt.figure(figsize=(10, 10))
+    colors = ['red', 'blue', 'green', 'purple', 'orange']
+    radii = [3.5, 4.5, 5.5, 1.5, 8.5]
+    for i, radius in enumerate(radii):
+        subset = raw_tril_df[raw_tril_df['radius'] == radius]
+        plt.scatter(subset['x'], subset['y'], c=colors[i], s=10, label=f'Radius {radius}', alpha=0.3)
+    plt.scatter([x for x, y in antennas], [y for x, y in antennas], c='black', marker='^', s=200, label='Antennas')
+    plt.xlim(0, 15)
+    plt.ylim(0, 15)
+    plt.xlabel('X Coordinate')
+    plt.ylabel('Y Coordinate')
+    plt.title('Raw Trilaterated Points (Before Projection)')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, 'raw_trilateration.png'))
+    print("Raw trilateration plot saved as 'raw_trilateration.png'")
+    plt.close()
 
     # Feature engineering
     all_data['time_diff'] = all_data.groupby('test_id')['timestamp'].diff().dt.total_seconds().fillna(0)
     for ant in range(1, 5):
         for col in [f'rssi_Ant{ant}', f'phase_angle_Ant{ant}', f'doppler_frequency_Ant{ant}']:
             all_data[f'{col}_lag1'] = all_data.groupby('test_id')[col].shift(1).fillna(all_data[col].mean())
-
+            all_data[f'{col}_norm'] = (all_data[col] - all_data[col].mean()) / all_data[col].std()
+    all_data['angle'] = compute_angle(all_data['x_coord'], all_data['y_coord'])
     for i, (ax, ay) in enumerate(antennas, 1):
         all_data[f'distance_Ant{i}'] = np.sqrt((all_data['x_coord'] - ax)**2 + (all_data['y_coord'] - ay)**2)
 
     all_data = all_data.fillna(all_data.mean(numeric_only=True))
 
     # Debug: Features
-    print(f"CircleTest{circle_test_num} processed data shape:", all_data.shape)
+    print("Processed data shape:", all_data.shape)
     print("Columns:", all_data.columns.tolist())
 
     # Train model
@@ -163,10 +209,14 @@ def train_circle_test(circle_test_num):
         'rssi_Ant1', 'rssi_Ant2', 'rssi_Ant3', 'rssi_Ant4',
         'phase_angle_Ant1', 'phase_angle_Ant2', 'phase_angle_Ant3', 'phase_angle_Ant4',
         'doppler_frequency_Ant1', 'doppler_frequency_Ant2', 'doppler_frequency_Ant3', 'doppler_frequency_Ant4',
+        'rssi_Ant1_norm', 'rssi_Ant2_norm', 'rssi_Ant3_norm', 'rssi_Ant4_norm',
+        'phase_angle_Ant1_norm', 'phase_angle_Ant2_norm', 'phase_angle_Ant3_norm', 'phase_angle_Ant4_norm',
+        'doppler_frequency_Ant1_norm', 'doppler_frequency_Ant2_norm', 'doppler_frequency_Ant3_norm', 'doppler_frequency_Ant4_norm',
         'time_diff',
         'rssi_Ant1_lag1', 'rssi_Ant2_lag1', 'rssi_Ant3_lag1', 'rssi_Ant4_lag1',
         'phase_angle_Ant1_lag1', 'phase_angle_Ant2_lag1', 'phase_angle_Ant3_lag1', 'phase_angle_Ant4_lag1',
-        'doppler_frequency_Ant1_lag1', 'doppler_frequency_Ant2_lag1', 'doppler_frequency_Ant3_lag1', 'doppler_frequency_Ant4_lag1'
+        'doppler_frequency_Ant1_lag1', 'doppler_frequency_Ant2_lag1', 'doppler_frequency_Ant3_lag1', 'doppler_frequency_Ant4_lag1',
+        'angle'
     ]
     X = all_data[feature_columns]
     y = all_data[['x_coord', 'y_coord']]
@@ -183,7 +233,7 @@ def train_circle_test(circle_test_num):
         'estimator__max_depth': [3, 4]
     }
 
-    print(f"Tuning GradientBoosting for CircleTest{circle_test_num}...")
+    print("Tuning GradientBoosting...")
     grid_search = GridSearchCV(model, param_grid, cv=5, scoring='neg_mean_squared_error', n_jobs=-1)
     grid_search.fit(X_train_scaled, y_train)
 
@@ -203,26 +253,7 @@ def train_circle_test(circle_test_num):
         pickle.dump(scaler, file)
     print(f"Model and scaler saved as '{model_path}' and '{scaler_path}'")
 
-# Train models for all CircleTests
-for i in range(1, 6):
-    train_circle_test(i)
-
-######################################################
-#--------------- PREDICT AND VISUALIZE ----------------#
-######################################################
-
-# Determine CircleTest for test file
-filename = os.path.basename(test_file).replace('.csv', '')
-meta = readme_data[readme_data['raw_CSV_filename'] == filename]
-if meta.empty:
-    print(f"No metadata for {filename}")
-    exit(1)
-circle_test_num = int(filename.split('-')[0].replace('circletest', ''))
-radius = meta['radius_true'].iloc[0]
-
 # Load model and scaler
-model_path = os.path.join(output_dir, f'best_model_dynamic_CircleTest{circle_test_num}.pkl')
-scaler_path = os.path.join(output_dir, f'scaler_dynamic_CircleTest{circle_test_num}.pkl')
 try:
     with open(model_path, 'rb') as file:
         model = pickle.load(file)
@@ -232,160 +263,166 @@ except FileNotFoundError:
     print(f"Model or scaler file not found: {model_path}, {scaler_path}")
     exit(1)
 
-# Load test data
-if not os.path.exists(test_file):
-    print(f"CSV file not found: {test_file}")
-    exit(1)
+######################################################
+#--------------- PREDICT AND VISUALIZE ----------------#
+######################################################
 
-df = pd.read_csv(test_file)
-df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
-df['test_id'] = filename
+# Process test files for each radius
+all_predictions = []
+for test_file in test_files:
+    if not os.path.exists(test_file):
+        print(f"Test file not found: {test_file}. Skipping.")
+        continue
 
-# Debug: Check raw data
-print("\nTest data shape:", df.shape)
-print("Unique antennas:", df['antenna'].unique())
+    filename = os.path.basename(test_file).replace('.csv', '')
+    meta_key = filename.lower()
+    meta = readme_data[readme_data['raw_CSV_filename'] == meta_key]
+    if meta.empty:
+        print(f"No metadata for {meta_key}. Skipping.")
+        continue
 
-# Pivot data
-pivot_data = df.groupby(['test_id', 'timestamp', 'antenna']).agg({
-    'rssi': 'mean',
-    'phase_angle': 'mean',
-    'doppler_frequency': 'mean'
-}).unstack()
-pivot_data.columns = [f'{col[0]}_Ant{int(col[1])}' for col in pivot_data.columns]
-pivot_data = pivot_data.reset_index()
+    radius = meta['radius_true'].iloc[0]
+    print(f"\nPredicting for {filename}, Radius {radius}")
 
-# Debug: Check pivot data
-print("Pivot data shape:", pivot_data.shape)
-print("Pivot data columns:", pivot_data.columns.tolist())
+    df = pd.read_csv(test_file)
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+    df['test_id'] = filename
 
-# Sort by timestamp
-pivot_data = pivot_data.sort_values('timestamp')
+    print(f"Test data shape for {filename}:", df.shape)
+    print("Unique antennas:", df['antenna'].unique())
 
-# Add temporal features
-pivot_data['time_diff'] = pivot_data['timestamp'].diff().dt.total_seconds().fillna(0)
-for ant in range(1, 5):
-    for col in [f'rssi_Ant{ant}', f'phase_angle_Ant{ant}', f'doppler_frequency_Ant{ant}']:
-        pivot_data[f'{col}_lag1'] = pivot_data[col].shift(1).fillna(pivot_data[col].mean())
+    pivot_data = df.groupby(['test_id', 'timestamp', 'antenna']).agg({
+        'rssi': 'mean',
+        'phase_angle': 'mean',
+        'doppler_frequency': 'mean'
+    }).unstack()
+    pivot_data.columns = [f'{col[0]}_Ant{int(col[1])}' for col in pivot_data.columns]
+    pivot_data = pivot_data.reset_index()
 
-# Add distance features (initially use center point)
-for i, (ax, ay) in enumerate(antennas, 1):
-    pivot_data[f'distance_Ant{i}'] = np.sqrt((7.5 - ax)**2 + (7.5 - ay)**2)
+    print(f"Pivot data shape for {filename}:", pivot_data.shape)
 
-# Handle missing values
-pivot_data = pivot_data.fillna(pivot_data.mean(numeric_only=True))
+    pivot_data['time_diff'] = pivot_data['timestamp'].diff().dt.total_seconds().fillna(0)
+    for ant in range(1, 5):
+        for col in [f'rssi_Ant{ant}', f'phase_angle_Ant{ant}', f'doppler_frequency_Ant{ant}']:
+            pivot_data[f'{col}_lag1'] = pivot_data[col].shift(1).fillna(pivot_data[col].mean())
+            pivot_data[f'{col}_norm'] = (pivot_data[col] - pivot_data[col].mean()) / pivot_data[col].std()
+    for i, (ax, ay) in enumerate(antennas, 1):
+        pivot_data[f'distance_Ant{i}'] = np.sqrt((7.5 - ax)**2 + (7.5 - ay)**2)
 
-# Features for prediction
-feature_columns = [
-    'rssi_Ant1', 'rssi_Ant2', 'rssi_Ant3', 'rssi_Ant4',
-    'phase_angle_Ant1', 'phase_angle_Ant2', 'phase_angle_Ant3', 'phase_angle_Ant4',
-    'doppler_frequency_Ant1', 'doppler_frequency_Ant2', 'doppler_frequency_Ant3', 'doppler_frequency_Ant4',
-    'time_diff',
-    'rssi_Ant1_lag1', 'rssi_Ant2_lag1', 'rssi_Ant3_lag1', 'rssi_Ant4_lag1',
-    'phase_angle_Ant1_lag1', 'phase_angle_Ant2_lag1', 'phase_angle_Ant3_lag1', 'phase_angle_Ant4_lag1',
-    'doppler_frequency_Ant1_lag1', 'doppler_frequency_Ant2_lag1', 'doppler_frequency_Ant3_lag1', 'doppler_frequency_Ant4_lag1'
-]
+    pivot_data = pivot_data.fillna(pivot_data.mean(numeric_only=True))
 
-if not all(col in pivot_data.columns for col in feature_columns):
-    missing = [col for col in feature_columns if col not in pivot_data.columns]
-    print(f"Missing features: {missing}")
-    exit(1)
-
-X = pivot_data[feature_columns]
-
-# Debug: Check features
-print("Feature data shape:", X.shape)
-print("Scaler expected features:", scaler.feature_names_in_)
-
-# Scale features
-try:
-    X_scaled = pd.DataFrame(scaler.transform(X), columns=X.columns)
-except ValueError as e:
-    print(f"Scaler transform error: {e}")
-    exit(1)
-
-# Predict (x, y)
-predictions = model.predict(X_scaled)
-pivot_data['pred_x'] = predictions[:, 0]
-pivot_data['pred_y'] = predictions[:, 1]
-
-# Refine with trilateration and circle projection
-for idx, row in pivot_data.iterrows():
-    dists = []
-    for i in range(1, 5):
-        rssi = row[f'rssi_Ant{i}']
-        phase = row[f'phase_angle_Ant{i}']
-        if pd.isna(rssi) or pd.isna(phase):
-            dists.append(np.nan)
+    pivot_data['raw_x'] = np.nan
+    pivot_data['raw_y'] = np.nan
+    for idx, row in pivot_data.iterrows():
+        dists = []
+        for i in range(1, 5):
+            rssi = row[f'rssi_Ant{i}']
+            phase = row[f'phase_angle_Ant{i}']
+            if pd.isna(rssi) or pd.isna(phase):
+                dists.append(np.nan)
+                continue
+            d_rssi = rssi_to_distance(rssi)
+            d_phase = phase_to_distance(phase)
+            d = 0.7 * d_rssi + 0.3 * d_phase
+            dists.append(d)
+        if all(np.isnan(dists)):
             continue
-        d_rssi = rssi_to_distance(rssi)
-        d_phase = phase_to_distance(phase)
-        d = 0.7 * d_rssi + 0.3 * d_phase
-        dists.append(d)
-    if all(np.isnan(dists)):
-        continue
-    dists = np.nan_to_num(dists, nan=np.nanmean(dists))
+        dists = np.nan_to_num(dists, nan=np.nanmean(dists))
+        try:
+            x, y = trilaterate(dists, antennas)
+            pivot_data.at[idx, 'raw_x'] = x
+            pivot_data.at[idx, 'raw_y'] = y
+            x_proj, y_proj = project_to_circle(x, y, radius=radius)
+            pivot_data.at[idx, 'pred_x'] = x_proj
+            pivot_data.at[idx, 'pred_y'] = y_proj
+        except:
+            continue
+
+    pivot_data['angle'] = compute_angle(pivot_data['pred_x'], pivot_data['pred_y'])
+    X = pivot_data[feature_columns]
     try:
-        x, y = trilaterate(dists, antennas)
-        x_proj, y_proj = project_to_circle(x, y, radius=radius)
-        pivot_data.at[idx, 'pred_x'] = x_proj
-        pivot_data.at[idx, 'pred_y'] = y_proj
-    except:
+        X_scaled = pd.DataFrame(scaler.transform(X), columns=X.columns)
+    except ValueError as e:
+        print(f"Scaler transform error for {filename}: {e}")
         continue
 
-# Smooth predictions
-pivot_data['pred_x'] = pivot_data['pred_x'].rolling(window=5, min_periods=1, center=True).mean()
-pivot_data['pred_y'] = pivot_data['pred_y'].rolling(window=5, min_periods=1, center=True).mean()
+    pivot_data['pred_x'] = pivot_data['pred_x'].rolling(window=5, min_periods=1, center=True).mean()
+    pivot_data['pred_y'] = pivot_data['pred_y'].rolling(window=5, min_periods=1, center=True).mean()
+    pivot_data['raw_x'] = pivot_data['raw_x'].rolling(window=5, min_periods=1, center=True).mean()
+    pivot_data['raw_y'] = pivot_data['raw_y'].rolling(window=5, min_periods=1, center=True).mean()
 
-# Debug: Check predictions
-print("Predictions shape:", pivot_data[['pred_x', 'pred_y']].shape)
-print("Sample predictions (first 5):")
-print(pivot_data[['timestamp', 'pred_x', 'pred_y']].head())
+    pivot_data['radius'] = radius
+    all_predictions.append(pivot_data)
 
-if pivot_data.empty or len(pivot_data) < 2:
-    print("Error: No valid data for animation. Check CSV content.")
+if not all_predictions:
+    print("No valid predictions generated. Exiting.")
     exit(1)
 
-# Static plot
-plt.figure(figsize=(8, 8))
-plt.scatter(pivot_data['pred_x'], pivot_data['pred_y'], c='red', s=10, label='Predicted')
-plt.scatter([x for x, y in antennas], [y for x, y in antennas], c='green', marker='^', s=200, label='Antennas')
+all_predictions_df = pd.concat(all_predictions, ignore_index=True)
+
+# Debug: Predictions
+print("\nTotal predictions shape:", all_predictions_df[['pred_x', 'pred_y']].shape)
+print("Sample predictions (first 5):")
+print(all_predictions_df[['timestamp', 'raw_x', 'raw_y', 'pred_x', 'pred_y', 'radius']].head())
+
+# Static plot with raw and projected points
+plt.figure(figsize=(12, 12))
+colors = ['red', 'blue', 'green', 'purple', 'orange']
+radii = [3.5, 4.5, 5.5, 1.5, 8.5]
+theta = np.linspace(0, 2*np.pi, 100)
+for i, radius in enumerate(radii):
+    subset = all_predictions_df[all_predictions_df['radius'] == radius]
+    plt.scatter(subset['raw_x'], subset['raw_y'], c=colors[i], marker='x', s=20, alpha=0.3, label=f'Raw (R={radius})')
+    plt.scatter(subset['pred_x'], subset['pred_y'], c=colors[i], marker='o', s=20, alpha=0.8, label=f'Projected (R={radius})')
+    plt.plot(7.5 + radius * np.cos(theta), 7.5 + radius * np.sin(theta), c=colors[i], ls='--', lw=1, label=f'Ideal R={radius}')
+plt.scatter([x for x, y in antennas], [y for x, y in antennas], c='black', marker='^', s=200, label='Antennas')
 plt.xlim(0, 15)
 plt.ylim(0, 15)
 plt.xlabel('X Coordinate')
 plt.ylabel('Y Coordinate')
-plt.title(f'Predicted RFID Tag Movement ({filename}, Radius {radius})')
-plt.legend()
+plt.title('RFID Tag Movement: Raw Trilateration vs. Circle Projection')
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.grid(True)
-plt.savefig(os.path.join(output_dir, 'predictions_static.png'))
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, 'predictions_static.png'), bbox_inches='tight')
 print("Static predictions plot saved as 'predictions_static.png'")
 plt.close()
 
-# Animation
-fig, ax = plt.subplots(figsize=(8, 8))
+# Animation with raw and projected points
+fig, ax = plt.subplots(figsize=(12, 12))
 ax.set_xlim(0, 15)
 ax.set_ylim(0, 15)
 ax.set_xlabel('X Coordinate')
 ax.set_ylabel('Y Coordinate')
-ax.set_title(f'Predicted RFID Tag Movement ({filename}, Radius {radius})')
+ax.set_title('RFID Tag Movement: Raw Trilateration vs. Circle Projection')
 ax.grid(True)
-ax.scatter([x for x, y in antennas], [y for x, y in antennas], color='green', marker='^', s=200, label='Antennas')
-pred_point, = ax.plot([], [], 'ro', label='Predicted', markersize=10)
-ax.legend()
+ax.scatter([x for x, y in antennas], [y for x, y in antennas], c='black', marker='^', s=200, label='Antennas')
+
+# Initialize points
+raw_points = [ax.plot([], [], 'x', c=colors[i], alpha=0.3, label=f'Raw (R={radius})', markersize=10)[0] for i, radius in enumerate(radii)]
+proj_points = [ax.plot([], [], 'o', c=colors[i], alpha=0.8, label=f'Proj (R={radius})', markersize=10)[0] for i, radius in enumerate(radii)]
+ideal_lines = [ax.plot(7.5 + radius * np.cos(theta), 7.5 + radius * np.sin(theta), c=colors[i], ls='--', lw=1, label=f'Ideal R={radius}')[0] for i, radius in enumerate(radii)]
+ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 
 def init():
-    pred_point.set_data([], [])
-    return pred_point,
+    for point in raw_points + proj_points:
+        point.set_data([], [])
+    return raw_points + proj_points
 
 def update(frame):
-    x = pivot_data['pred_x'].iloc[frame]
-    y = pivot_data['pred_y'].iloc[frame]
-    if pd.isna(x) or pd.isna(y):
-        print(f"Warning: Invalid data at frame {frame}")
-        return pred_point,
-    pred_point.set_data([x], [y])
-    return pred_point,
+    for i, radius in enumerate(radii):
+        subset = all_predictions_df[all_predictions_df['radius'] == radius]
+        if frame < len(subset):
+            raw_x, raw_y = subset['raw_x'].iloc[frame], subset['raw_y'].iloc[frame]
+            proj_x, proj_y = subset['pred_x'].iloc[frame], subset['pred_y'].iloc[frame]
+            if not (pd.isna(raw_x) or pd.isna(raw_y)):
+                raw_points[i].set_data([raw_x], [raw_y])
+            if not (pd.isna(proj_x) or pd.isna(proj_y)):
+                proj_points[i].set_data([proj_x], [proj_y])
+    return raw_points + proj_points
 
-ani = FuncAnimation(fig, update, frames=len(pivot_data), init_func=init, blit=True, interval=50)
+min_length = min(len(all_predictions_df[all_predictions_df['radius'] == r]) for r in radii)
+ani = FuncAnimation(fig, update, frames=min_length, init_func=init, blit=True, interval=50)
 try:
     ani.save(os.path.join(output_dir, 'tag_movement.mp4'), writer='ffmpeg', fps=20)
     print("Animation saved as 'tag_movement.mp4'")
