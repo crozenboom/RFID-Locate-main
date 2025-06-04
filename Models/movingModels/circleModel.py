@@ -22,7 +22,7 @@ circle_base_dir = os.path.join(base_dir, 'Testing/MovementTesting/CircleTests')
 metadata_file = os.path.join(circle_base_dir, 'CircleMetadata.csv')
 output_dir = os.path.join(base_dir, 'Models/movingModels')
 
-# Test files (all are clockwise)
+# Test files (all clockwise)
 test_files = [
     {'path': os.path.join(circle_base_dir, 'CircleTest1', 'circletest1-1.csv'), 'radius': 3.5},
     {'path': os.path.join(circle_base_dir, 'CircleTest1', 'circletest1-2.csv'), 'radius': 3.5},
@@ -58,15 +58,15 @@ if len(sys.argv) > 1:
 feature_columns = [
     'rssi_Ant1', 'rssi_Ant2', 'rssi_Ant3', 'rssi_Ant4',
     'phase_angle_Ant1', 'phase_angle_Ant2', 'phase_angle_Ant3', 'phase_angle_Ant4',
-    'doppler_frequency_Ant1', 'doppler_frequency_Ant2', 'doppler_frequency_Ant3', 'doppler_frequency_Ant4',
+    #'doppler_frequency_Ant1', 'doppler_frequency_Ant2', 'doppler_frequency_Ant3', 'doppler_frequency_Ant4',
     'rssi_Ant1_norm', 'rssi_Ant2_norm', 'rssi_Ant3_norm', 'rssi_Ant4_norm',
     'phase_angle_Ant1_norm', 'phase_angle_Ant2_norm', 'phase_angle_Ant3_norm', 'phase_angle_Ant4_norm',
-    'doppler_frequency_Ant1_norm', 'doppler_frequency_Ant2_norm', 'doppler_frequency_Ant3_norm', 'doppler_frequency_Ant4_norm',
+    #'doppler_frequency_Ant1_norm', 'doppler_frequency_Ant2_norm', 'doppler_frequency_Ant3_norm', 'doppler_frequency_Ant4_norm',
     'time_diff',
     'rssi_Ant1_lag1', 'rssi_Ant2_lag1', 'rssi_Ant3_lag1', 'rssi_Ant4_lag1',
     'phase_angle_Ant1_lag1', 'phase_angle_Ant2_lag1', 'phase_angle_Ant3_lag1', 'phase_angle_Ant4_lag1',
-    'doppler_frequency_Ant1_lag1', 'doppler_frequency_Ant2_lag1', 'doppler_frequency_Ant3_lag1', 'doppler_frequency_Ant4_lag1',
-    'angle',
+    #'doppler_frequency_Ant1_lag1', 'doppler_frequency_Ant2_lag1', 'doppler_frequency_Ant3_lag1', 'doppler_frequency_Ant4_lag1',
+    #'angle',
     'angular_velocity'
 ]
 
@@ -99,23 +99,25 @@ def phase_to_distance(phase, wavelength=0.33):
 def trilaterate(distances, antenna_positions):
     def residuals(x, distances, positions):
         return [np.sqrt((x[0] - p[0])**2 + (x[1] - p[1])**2) - d for p, d in zip(positions, distances)]
-    initial_guess = [7.5, 7.5]
+    initial_guess = [np.random.uniform(0, 15), np.random.uniform(0, 15)]  # Random initial guess
     bounds = ([0, 0], [15, 15])
     try:
         result = least_squares(residuals, initial_guess, args=(distances, antenna_positions), bounds=bounds)
+        if np.any(np.isnan(result.x)) or not result.success:
+            return [np.nan, np.nan]
         return result.x
     except Exception as e:
         print(f"Trilateration error: {e}")
         return [np.nan, np.nan]
 
 def project_to_circle(x, y, center_x=7.5, center_y=7.5, radius=3.5):
-    dx = x - center_x
-    dy = y - center_y
-    dist = np.sqrt(dx**2 + dy**2)
-    if dist == 0:
-        return center_x + radius, center_y
-    scale = radius / dist
-    return center_x + dx * scale, center_y + dy * scale
+    if np.isnan(x) or np.isnan(y):
+        theta = np.random.uniform(0, 2 * np.pi)  # Random angle for invalid points
+    else:
+        dx = x - center_x
+        dy = y - center_y
+        theta = np.arctan2(dy, dx)
+    return center_x + radius * np.cos(theta), center_y + radius * np.sin(theta)
 
 def compute_angle(x, y, center_x=7.5, center_y=7.5):
     return np.degrees(np.arctan2(y - center_y, x - center_x)) % 360
@@ -160,6 +162,7 @@ if not all_files:
 data_list = []
 raw_trilaterated_points = []
 projected_points = []
+distance_logs = []
 trilateration_attempts = 0
 trilateration_successes = 0
 
@@ -183,7 +186,7 @@ for file in all_files:
     pivot_data = df.groupby(['test_id', 'timestamp', 'antenna']).agg({
         'rssi': 'mean',
         'phase_angle': 'mean',
-        'doppler_frequency': 'mean'
+        #'doppler_frequency': 'mean'
     }).unstack()
     pivot_data.columns = [f'{col[0]}_Ant{int(col[1])}' for col in pivot_data.columns]
     pivot_data = pivot_data.reset_index()
@@ -200,21 +203,24 @@ for file in all_files:
                 continue
             d_rssi = rssi_to_distance(rssi)
             d_phase = phase_to_distance(phase)
-            d = 0.4 * d_rssi + 0.6 * d_phase
+            d = 0.7 * d_rssi + 0.3 * d_phase  # Adjusted weights
             dists.append(d)
-        if all(np.isnan(dists)):
+        if all(np.isnan(dists)) or np.std(dists) < 0.1:  # Check for low variation
             continue
         dists = np.nan_to_num(dists, nan=np.nanmean(dists))
+        distance_logs.append({'file': filename, 'dists': dists, 'radius': radius})
         try:
             x, y = trilaterate(dists, antennas)
             if not np.any(np.isnan([x, y])):
                 trilateration_successes += 1
-                raw_trilaterated_points.append({'x': x, 'y': y, 'radius': radius})
-            x_true, y_true = project_to_circle(x, y, radius=radius)
-            projected_points.append({'x': x_true, 'y': y_true, 'radius': radius})
-            row['x_coord'] = x_true
-            row['y_coord'] = y_true
-            distances.append(row)
+                raw_trilaterated_points.append({'x': x, 'y': y, 'radius': radius, 'file': filename})
+                x_true, y_true = project_to_circle(x, y, radius=radius)
+                projected_points.append({'x': x_true, 'y': y_true, 'radius': radius, 'file': filename})
+                row['x_coord'] = x_true
+                row['y_coord'] = y_true
+                row['raw_x'] = x
+                row['raw_y'] = y
+                distances.append(row)
         except Exception as e:
             print(f"Trilateration failed for {filename} row {idx}: {e}")
             continue
@@ -232,7 +238,7 @@ all_data = pd.concat(data_list, ignore_index=True)
 all_data = all_data.sort_values(['test_id', 'timestamp'])
 all_data['time_diff'] = all_data.groupby('test_id')['timestamp'].diff().dt.total_seconds().fillna(0)
 for ant in range(1, 5):
-    for col in [f'rssi_Ant{ant}', f'phase_angle_Ant{ant}', f'doppler_frequency_Ant{ant}']:
+    for col in [f'rssi_Ant{ant}', f'phase_angle_Ant{ant}']:#, f'doppler_frequency_Ant{ant}']:
         all_data[f'{col}_lag1'] = all_data.groupby('test_id')[col].shift(1).fillna(all_data[col].mean())
         all_data[f'{col}_norm'] = (all_data[col] - all_data[col].mean()) / all_data[col].std()
 all_data['angle'] = compute_angle(all_data['x_coord'], all_data['y_coord'])
@@ -254,59 +260,59 @@ print("Top-left (x<7.5, y>7.5):", ((all_data['x_coord'] < 7.5) & (all_data['y_co
 print("Top-right (x>7.5, y>7.5):", ((all_data['x_coord'] > 7.5) & (all_data['y_coord'] > 7.5)).sum())
 print(f"Trilateration success rate: {trilateration_successes/trilateration_attempts:.2%} ({trilateration_successes}/{trilateration_attempts})")
 
-# Plot raw trilaterated points
-raw_tril_df = pd.DataFrame(raw_trilaterated_points)
-print(f"Raw trilaterated points: {len(raw_trilaterated_points)}")
-if not raw_tril_df.empty:
-    plt.figure(figsize=(10, 10))
-    colors = ['red', 'blue', 'green', 'purple', 'orange']
-    radii = [3.5, 4.5, 5.5, 1.5, 8.5]
-    for i, radius in enumerate(radii):
-        subset = raw_tril_df[raw_tril_df['radius'] == radius]
-        if not subset.empty:
-            plt.scatter(subset['x'], subset['y'], c=colors[i], s=50, label=f'Radius {radius}', alpha=0.3)
-    plt.scatter([x for x, y in antennas], [y for x, y in antennas], c='black', marker='^', s=200, label='Antennas')
-    plt.xlim(0, 15)
-    plt.ylim(0, 15)
-    plt.xlabel('X Coordinate')
-    plt.ylabel('Y Coordinate')
-    plt.title('Raw Trilaterated Points (Before Projection)')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(output_dir, 'raw_trilateration.png'))
-    print("Raw trilateration plot saved as 'raw_trilateration.png'")
-else:
-    print("No raw trilaterated points to plot.")
-plt.close()
+# Distance stats
+dist_df = pd.DataFrame([{'radius': d['radius'], 'ant': i+1, 'dist': d['dists'][i]} for d in distance_logs for i in range(4)])
+for radius in [1.5, 3.5, 4.5, 5.5, 8.5]:
+    subset = dist_df[dist_df['radius'] == radius]
+    if not subset.empty:
+        print(f"\nDistance stats for radius {radius}:")
+        print(f"Min: {subset['dist'].min():.2f}, Max: {subset['dist'].max():.2f}, Mean: {subset['dist'].mean():.2f}, Std: {subset['dist'].std():.2f}")
 
-# Plot projected points (training targets)
+# Plot raw vs. projected points per file
+raw_tril_df = pd.DataFrame(raw_trilaterated_points)
 proj_df = pd.DataFrame(projected_points)
-print(f"Projected points: {len(projected_points)}")
-if not proj_df.empty:
+for filename in raw_tril_df['file'].unique():
     plt.figure(figsize=(10, 10))
-    for i, radius in enumerate(radii):
-        subset = proj_df[proj_df['radius'] == radius]
-        if not subset.empty:
-            plt.scatter(subset['x'], subset['y'], c=colors[i], s=50, label=f'Radius {radius}', alpha=0.3)
+    raw_subset = raw_tril_df[raw_tril_df['file'] == filename]
+    proj_subset = proj_df[proj_df['file'] == filename]
+    radius = raw_subset['radius'].iloc[0] if not raw_subset.empty else 3.5
+    plt.scatter(raw_subset['x'], raw_subset['y'], c='blue', s=50, label='Raw Trilaterated', alpha=0.3)
+    plt.scatter(proj_subset['x'], proj_subset['y'], c='red', s=50, label='Projected', alpha=0.3)
+    theta = np.linspace(0, 2*np.pi, 100)
+    plt.plot(7.5 + radius * np.cos(theta), 7.5 + radius * np.sin(theta), 'k--', label=f'Ideal R={radius}')
     plt.scatter([x for x, y in antennas], [y for x, y in antennas], c='black', marker='^', s=200, label='Antennas')
     plt.xlim(0, 15)
     plt.ylim(0, 15)
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
-    plt.title('Projected Training Targets')
+    plt.title(f'Raw vs. Projected Points: {filename}')
     plt.legend()
     plt.grid(True)
-    plt.savefig(os.path.join(output_dir, 'training_targets.png'))
-    print("Training targets plot saved as 'training_targets.png'")
-else:
-    print("No projected points to plot.")
+    plt.savefig(os.path.join(output_dir, f'raw_vs_projected_{filename}.png'))
+    print(f"Raw vs. projected plot saved as 'raw_vs_projected_{filename}.png'")
+    plt.close()
+
+# Plot distance distributions
+plt.figure(figsize=(10, 6))
+colors = ['red', 'blue', 'green', 'purple', 'orange']
+radii = [3.5, 4.5, 5.5, 1.5, 8.5]
+for i, radius in enumerate(radii):
+    subset = dist_df[dist_df['radius'] == radius]
+    plt.hist(subset['dist'], bins=30, alpha=0.3, label=f'Radius {radius}', color=colors[i])
+plt.xlabel('Distance')
+plt.ylabel('Frequency')
+plt.title('Trilateration Distance Distributions')
+plt.legend()
+plt.grid(True)
+plt.savefig(os.path.join(output_dir, 'distance_distributions.png'))
+print("Distance distributions plot saved as 'distance_distributions.png'")
 plt.close()
 
 X = all_data[feature_columns]
 y = all_data[['x_coord', 'y_coord']]
 
 # Debug: Check coordinate variation
-print("Training coordinate stats:")
+print("\nTraining coordinate stats:")
 print(f"X: Min={y['x_coord'].min():.2f}, Max={y['x_coord'].max():.2f}, Mean={y['x_coord'].mean():.2f}, Std={y['x_coord'].std():.2f}")
 print(f"Y: Min={y['y_coord'].min():.2f}, Max={y['y_coord'].max():.2f}, Mean={y['y_coord'].mean():.2f}, Std={y['y_coord'].std():.2f}")
 
@@ -395,7 +401,7 @@ for test_file in test_files:
     pivot_data = df.groupby(['test_id', 'timestamp', 'antenna']).agg({
         'rssi': 'mean',
         'phase_angle': 'mean',
-        'doppler_frequency': 'mean'
+        #'doppler_frequency': 'mean'
     }).unstack()
     pivot_data.columns = [f'{col[0]}_Ant{int(col[1])}' for col in pivot_data.columns]
     pivot_data = pivot_data.reset_index()
@@ -405,14 +411,12 @@ for test_file in test_files:
     # Feature engineering
     pivot_data['time_diff'] = pivot_data['timestamp'].diff().dt.total_seconds().fillna(0)
     for ant in range(1, 5):
-        for col in [f'rssi_Ant{ant}', f'phase_angle_Ant{ant}', f'doppler_frequency_Ant{ant}']:
+        for col in [f'rssi_Ant{ant}', f'phase_angle_Ant{ant}']:#, f'doppler_frequency_Ant{ant}']:
             pivot_data[f'{col}_lag1'] = pivot_data[col].shift(1).fillna(pivot_data[col].mean())
             pivot_data[f'{col}_norm'] = (pivot_data[col] - all_data[col].mean()) / all_data[col].std()
 
     pivot_data['raw_x'] = np.nan
     pivot_data['raw_y'] = np.nan
-    pivot_data['pred_x_unsmoothed'] = np.nan
-    pivot_data['pred_y_unsmoothed'] = np.nan
     for idx, row in pivot_data.iterrows():
         dists = []
         for i in range(1, 5):
@@ -423,9 +427,9 @@ for test_file in test_files:
                 continue
             d_rssi = rssi_to_distance(rssi)
             d_phase = phase_to_distance(phase)
-            d = 0.4 * d_rssi + 0.6 * d_phase
+            d = 0.7 * d_rssi + 0.3 * d_phase
             dists.append(d)
-        if all(np.isnan(dists)):
+        if all(np.isnan(dists)) or np.std(dists) < 0.1:
             continue
         dists = np.nan_to_num(dists, nan=np.nanmean(dists))
         try:
@@ -450,8 +454,6 @@ for test_file in test_files:
     try:
         X_scaled = pd.DataFrame(scaler.transform(X), columns=X.columns)
         predictions = model.predict(X_scaled)
-        pivot_data['pred_x_unsmoothed'] = predictions[:, 0]
-        pivot_data['pred_y_unsmoothed'] = predictions[:, 1]
         pivot_data['pred_x'] = predictions[:, 0]
         pivot_data['pred_y'] = predictions[:, 1]
     except Exception as e:
@@ -475,9 +477,9 @@ all_predictions_df = pd.concat(all_predictions, ignore_index=True)
 
 print("\nTotal predictions shape:", all_predictions_df[['pred_x', 'pred_y']].shape)
 print("Sample predictions (first 5):")
-print(all_predictions_df[['timestamp', 'raw_x', 'raw_y', 'pred_x', 'pred_y', 'pred_x_unsmoothed', 'pred_y_unsmoothed', 'radius']].head())
+print(all_predictions_df[['timestamp', 'raw_x', 'raw_y', 'pred_x', 'pred_y', 'radius']].head())
 
-# Unsmoothed predictions plot
+# Static plot
 plt.figure(figsize=(12, 10))
 colors = ['red', 'blue', 'green', 'purple', 'orange']
 radii = [3.5] if selected_radius else [3.5, 4.5, 5.5, 1.5, 8.5]
@@ -486,35 +488,16 @@ theta = np.linspace(0, 2*np.pi, 100)
 for radius in radii:
     subset = all_predictions_df[all_predictions_df['radius'] == radius]
     color = color_map[radius]
-    plt.scatter(subset['pred_x_unsmoothed'], subset['pred_y_unsmoothed'], c=color, marker='o', s=20, alpha=0.8, label=f'Unsmoothed Predicted (R={radius})')
+    plt.scatter(subset['raw_x'], subset['raw_y'], c=color, marker='x', s=50, alpha=0.5, label=f'Raw (R={radius})')
+    plt.scatter(subset['pred_x'], subset['pred_y'], c=color, marker='o', s=50, alpha=0.8, label=f'Predicted (R={radius})')
     plt.plot(7.5 + radius * np.cos(theta), 7.5 + radius * np.sin(theta), c=color, ls='--', lw=1, label=f'Ideal (R={radius})')
+plt.scatter(subset['raw_x'], subset['raw_y'], c='black', marker='x', s=50, alpha=0.5, label='Raw')
 plt.scatter([x for x, y in antennas], [y for x, y in antennas], c='black', marker='^', s=200, label='Antennas')
 plt.xlim(0, 15)
 plt.ylim(0, 15)
 plt.xlabel('X Coordinate')
 plt.ylabel('Y Coordinate')
-plt.title('Unsmoothed Predictions')
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.grid(True)
-plt.tight_layout()
-plt.savefig(os.path.join(output_dir, 'unsmoothed_predictions.png'), bbox_inches='tight')
-print("Unsmoothed predictions saved as 'unsmoothed_predictions.png'")
-plt.close()
-
-# Static plot
-plt.figure(figsize=(12, 10))
-for radius in radii:
-    subset = all_predictions_df[all_predictions_df['radius'] == radius]
-    color = color_map[radius]
-    plt.scatter(subset['raw_x'], subset['raw_y'], c=color, marker='x', s=20, alpha=0.5, label=f'Raw (R={radius})')
-    plt.scatter(subset['pred_x'], subset['pred_y'], c=color, marker='o', s=20, alpha=0.8, label=f'Predicted (R={radius})')
-    plt.plot(7.5 + radius * np.cos(theta), 7.5 + radius * np.sin(theta), c=color, ls='--', lw=1, label=f'Ideal (R={radius})')
-plt.scatter([x for x, y in antennas], [y for x, y in antennas], c='black', marker='^', s=200, label='Antennas')
-plt.xlim(0, 15)
-plt.ylim(0, 15)
-plt.xlabel('X Coordinate')
-plt.ylabel('Y Coordinate')
-plt.title('RFID Tag Movement: Clockwise Circle Projection')
+plt.title('RFID Tag Movement: Clockwise Circle Prediction')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.grid(True)
 plt.tight_layout()
@@ -528,7 +511,7 @@ ax.set_xlim(0, 15)
 ax.set_ylim(0, 15)
 ax.set_xlabel('X Coordinate')
 ax.set_ylabel('Y Coordinate')
-ax.set_title('RFID Tag Movement: Clockwise Circle Projection')
+ax.set_title('RFID Tag Movement: Clockwise Circle Prediction')
 ax.grid(True)
 ax.scatter([x for x, y in antennas], [y for x, y in antennas], c='black', marker='^', s=200, label='Antennas')
 
