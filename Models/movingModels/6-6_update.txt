@@ -1,0 +1,40 @@
+**RFID Moving Test Model Evolution**
+
+**Start (MoveTest1, GradientBoosting)**:
+- Goal: Predict (x, y) with MoveTest1 + Test8, GradientBoostingRegressor.
+- Features: rssi_Ant1–4, phase_angle_Ant1–4.
+- Issue: Wrong 4-antenna assumption, TypeError in fillna.
+- Output: Failed.
+- Performance: N/A.
+
+**Fix Errors (MoveTest1)**:
+- Changes: Excluded test_id in fillna, interpolated per row, logged antennas.
+- Output: 32 CSVs (60–221 rows, 4 antennas).
+- Performance: MSE 6.32, 7.60 (avg 6.96); MAE 1.77, 1.88.
+- Issue: High errors, aggregation lost dynamics.
+
+**Per-Antenna Interpolation (MoveTest1)**:
+- Changes: Interpolated per antenna, added RSSI differences, reduced estimators to 100.
+- Output: Not shared.
+- Goal: Better coordinate alignment, more features.
+
+**RandomForest, MoveTest2, Quadrant Prediction**:
+- Changes: Switched to RandomForestRegressor, used MoveTest2 (diagonal paths), removed static plot points, added RandomForestClassifier for quadrants.
+- Output: 32 CSVs (98–239 rows, 4 antennas).
+- Performance: MSE 9.60, 9.44 (avg 9.52); MAE 2.50, 2.47; Quadrant Accuracy 50.81%.
+- Issue: Worse performance, low quadrant accuracy.
+
+**Seaborn Fix**:
+- Changes: Installed seaborn for confusion matrix.
+- Output: Successful run.
+- Performance: Same as Step 3.
+
+**Current State**:
+- Works: Processes MoveTest2, trains regressor/classifier, plots dynamic points, saves confusion matrix.
+- Issues: Poor MSE (9.52), MAE (2.50, 2.47), quadrant accuracy (50.81%) due to aggregation, limited features.
+- Next: Use all rows, add features (e.g., doppler_frequency), review plots, check antenna balance.
+
+**Actions**:
+- Share model_predictions_movetest2.png, quadrant_confusion_matrix.png.
+- Check antenna balance for movetest2-1, movetest2-9, movetest2-17.
+- Confirm: MSE (~1.09?), quadrant accuracy (>90%?), features, aggregation vs. all rows.

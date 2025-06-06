@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 ######################################################
 
 # Directory for CSV files
-data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Movement Testing/CircleTests/CircleTest0'
+data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/CircleTests/CircleTest0'
 
 ######################################################
 #--------- DATA LOADING AND PER-LOCATION PROCESSING --#
