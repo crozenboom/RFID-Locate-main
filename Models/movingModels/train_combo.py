@@ -277,7 +277,7 @@ gb_regressor.fit(X_train, y_train[['x_coord', 'y_coord']], sample_weight=w_train
 
 # Train RandomForest regressor
 rf_regressor = MultiOutputRegressor(RandomForestRegressor(
-    n_estimators=100, max_depth=3, random_state=42
+    n_estimators=500, max_depth=3, random_state=42
 ))
 rf_regressor.fit(X_train, y_train[['x_coord', 'y_coord']], sample_weight=w_train)
 
