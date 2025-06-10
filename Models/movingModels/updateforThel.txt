@@ -1,59 +1,35 @@
 RFID Moving Test Model Evolution
+Updated: June 10, 2025
 
-Updated: June 09, 2025
+1. Start (MoveTest1, GradientBoosting)
+Changes: Used GradientBoostingRegressor on MoveTest1 + Test8, rssi_Ant1-4, phase_angle_Ant1-4.
+Performance: Failed (TypeError in fillna).
 
-Start (MoveTest1, GradientBoosting):
-
-Goal: Predict (x, y) with MoveTest1 + Test8, GradientBoostingRegressor.
-Features: rssi_Ant1–4, phase_angle_Ant1–4.
-Issue: Incorrect 4-antenna assumption, TypeError in fillna.
-Output: Failed.
-Performance: N/A.
-Fix Errors (MoveTest1):
-
-Changes: Excluded test_id in fillna, interpolated per row, logged antennas.
-Output: 32 CSVs (60–221 rows, 4 antennas).
+2. Fix Errors (MoveTest1)
+Changes: Fixed fillna, interpolated per row, logged antennas.
 Performance: MSE 6.32, 7.60 (avg 6.96); MAE 1.77, 1.88.
-Issue: High errors, aggregation lost dynamics.
-Per-Antenna Interpolation (MoveTest1):
 
+3. Per-Antenna Interpolation (MoveTest1)
 Changes: Interpolated per antenna, added RSSI differences, reduced estimators to 100.
-Output: Not shared.
-Goal: Better coordinate alignment, more features.
-RandomForest, MoveTest2, Quadrant Prediction:
+Performance: Not shared.
 
-Changes: Switched to RandomForestRegressor, used MoveTest2 (diagonal paths), removed static plot points, added RandomForestClassifier for quadrants.
-Output: 32 CSVs (98–239 rows, 4 antennas).
+4. RandomForest, MoveTest2, Quadrant Prediction
+Changes: Switched to RandomForestRegressor, used MoveTest2, added RandomForestClassifier for quadrants.
 Performance: MSE 9.60, 9.44 (avg 9.52); MAE 2.50, 2.47; Quadrant Accuracy 50.81%.
-Issue: Worse performance, low quadrant accuracy.
-Seaborn Fix:
 
+5. Seaborn Fix
 Changes: Installed seaborn for confusion matrix.
-Output: Successful run.
-Performance: Same as RandomForest step.
-GradientBoosting + RandomForest, MoveTest2 + Test8 + CircleTest1:
+Performance: Same as above.
 
-Changes: Reintroduced GradientBoostingRegressor, added RandomForestRegressor for comparison, included Test8 (stationary) and CircleTest1 (circular paths), fixed quadrant KeyError, corrected stationary_indices regex, emphasized quadrant accuracy.
-Output:
-Stationary: 28026 rows, 64 test IDs (e.g., (12,3).csv, (1,12).csv).
-MoveTest2: 4254 rows, 27 test IDs (e.g., movetest2-1 to movetest2-32, 5 skipped for <15 antenna readings).
-CircleTest1: 3221 rows, 14 test IDs (circletest1-1 to circletest1-16, 1 skipped).
-Pivot: Stationary 250 rows (incorrect, expected ~64), MoveTest2 4254, CircleTest1 3221.
-Issue: NaNs in all difference columns (rssi_diff_Ant*, phase_diff_Ant*) due to incorrect pivot, causing ValueError: Input X contains NaN.
-Performance: Failed due to NaN error.
-Pivot Table Fix:
+6. GradientBoosting + RandomForest, MoveTest2 + Test8 + CircleTest1
+Changes: Added GradientBoostingRegressor, included Test8, CircleTest1, fixed quadrant KeyError, regex.
+Performance: Failed (NaNs in difference columns).
 
-Changes: Replaced groupby/unstack with pivot_table for correct RSSI/phase aggregation, filled NaNs before/after difference calculations, simplified sample weights.
-Output: Expected to process all datasets correctly, with stationary pivot ~64 rows, no NaNs in X.
-Performance: Not yet available (pending successful run).
-Goal: Improve MSE, MAE, and quadrant accuracy (>90% target), compare GradientBoosting vs. RandomForest.
-Current State:
+7. Pivot Table Fix
+Changes: Used pivot_table, filled NaNs, weights (static=5.0, dynamic=1.0).
+Performance: Not available.
 
-Works: Processes MoveTest2, CircleTest1, Test8; trains GradientBoostingRegressor, RandomForestRegressor, and RandomForestClassifier; plots dynamic points; saves confusion matrix and feature importances.
-Issues: Previous NaN error in difference columns, incorrect stationary pivot (250 rows), low quadrant accuracy in earlier runs (50.81%).
-Next:
-Confirm pivot_table fixes NaN issue and reduces stationary pivot rows.
-Use all rows instead of aggregating to preserve dynamics.
-Add features (e.g., doppler_frequency, channel_index).
-Optimize n_estimators (500 for GradientBoosting, 100 for RandomForest) and max_depth.
-Target MSE ~1.0, quadrant accuracy >90%.
+8. RandomForest with Doppler
+Changes: RandomForest only, doppler clipped +/-10 Hz, static=6.0, dynamic=1.0, balanced classifier.
+Performance: Regressor: MSE 0.12, 0.09 (avg 0.11); MAE 0.28, 0.22; Quadrant Accuracy 18.75%. Classifier: Quadrant Accuracy 100% (all quadrant 3).
+
