@@ -6,6 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.impute import KNNImputer
 from sklearn.model_selection import GridSearchCV
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm  # Ensure correct import for colormaps
 import os
 
 # Suppress pandas FutureWarning
@@ -16,7 +17,7 @@ metadata_file = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/T
 static_data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Test8'
 dynamic_data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/LineTests/MoveTest2'
 script_dir = os.path.dirname(os.path.abspath(__file__))
-plot_save_path = os.path.join(script_dir, 'quadrant_predictions_path3.png')
+plot_save_path = os.path.join(script_dir, 'quadrant_predictions_path3_gradient.png')
 results_save_path = os.path.join(script_dir, 'quadrant_results.csv')
 
 # Load metadata
@@ -73,7 +74,8 @@ def add_derived_features(df, features):
     for i in range(1, 5):
         df[f'rssi_var_{i}'] = df[f'rssi_{i}'].rolling(window=5, min_periods=1).var()
         df[f'phase_diff_{i}'] = df[f'phase_{i}'].diff()
-        features.extend([f'rssi_var_{i}', f'phase_diff_{i}'])
+        df[f'doppler_diff_{i}'] = df[f'doppler_{i}'].diff()
+        features.extend([f'rssi_var_{i}', f'phase_diff_{i}', f'doppler_diff_{i}'])
     return df, features
 
 # Function to pivot data for features
@@ -82,16 +84,19 @@ def pivot_data(df, filename="unknown"):
         grouped = df.groupby(['epc', 'timestamp']).agg({
             'rssi': list,
             'phase_angle': list,
+            'doppler_frequency': list,
             'antenna': list
         }).reset_index()
         
-        features = ['rssi_1', 'rssi_2', 'rssi_3', 'rssi_4', 'phase_1', 'phase_2', 'phase_3', 'phase_4']
+        features = ['rssi_1', 'rssi_2', 'rssi_3', 'rssi_4', 
+                    'phase_1', 'phase_2', 'phase_3', 'phase_4',
+                    'doppler_1', 'doppler_2', 'doppler_3', 'doppler_4']
         feature_df = pd.DataFrame(index=grouped.index, columns=features)
         
-        # Debugging: Count antenna readings and log antenna numbers
-        antenna_counts = grouped['antenna'].apply(lambda x: len(x)).value_counts()
+        # Debugging: Count unique antennas per group and log antenna numbers
+        antenna_counts = grouped['antenna'].apply(lambda x: len(set(x))).value_counts()
         antenna_numbers = df['antenna'].value_counts()
-        print(f"Antenna counts for {filename}:")
+        print(f"Antenna counts (unique antennas per group) for {filename}:")
         print(antenna_counts)
         print(f"Antenna numbers for {filename}:")
         print(antenna_numbers)
@@ -100,16 +105,18 @@ def pivot_data(df, filename="unknown"):
             antennas = row['antenna']
             rssi_values = row['rssi']
             phase_values = row['phase_angle']
-            for ant, rssi, phase in zip(antennas, rssi_values, phase_values):
+            doppler_values = row['doppler_frequency']
+            for ant, rssi, phase, doppler in zip(antennas, rssi_values, phase_values, doppler_values):
                 ant = int(ant)
                 if ant in [1, 2, 3, 4]:
                     feature_df.loc[idx, f'rssi_{ant}'] = rssi
                     feature_df.loc[idx, f'phase_{ant}'] = phase
+                    feature_df.loc[idx, f'doppler_{ant}'] = doppler
         
         feature_df['epc'] = grouped['epc']
         feature_df['timestamp'] = grouped['timestamp']
         
-        # Smooth RSSI and phase features
+        # Smooth features
         for col in features:
             feature_df[col] = pd.to_numeric(feature_df[col], errors='coerce')
             feature_df[col] = feature_df[col].rolling(window=5, min_periods=1).median()
@@ -124,7 +131,9 @@ def pivot_data(df, filename="unknown"):
 
 # Load static data
 static_data = []
-all_features = ['rssi_1', 'rssi_2', 'rssi_3', 'rssi_4', 'phase_1', 'phase_2', 'phase_3', 'phase_4']
+all_features = ['rssi_1', 'rssi_2', 'rssi_3', 'rssi_4', 
+                'phase_1', 'phase_2', 'phase_3', 'phase_4',
+                'doppler_1', 'doppler_2', 'doppler_3', 'doppler_4']
 for filename in os.listdir(static_data_dir):
     if filename.endswith('.csv'):
         try:
@@ -316,7 +325,7 @@ if all_true_quadrants:
     print("\nDynamic data true quadrant distribution:")
     print(pd.Series(all_true_quadrants).value_counts().sort_index())
 
-# Plot true paths and predicted quadrants for path_# == 3
+# Plot true paths and predicted quadrants for path_# == 3 with color gradient
 if path3_data:
     plt.figure(figsize=(10, 10))
     plt.grid(True)
@@ -326,22 +335,43 @@ if path3_data:
     plt.axvline(x=7.5, color='k', linestyle='--', alpha=0.5)
     plt.xlabel('X')
     plt.ylabel('Y')
-    plt.title('True Paths and Predicted Quadrants (Path #3)')
+    plt.title('True Paths and Predicted Quadrants with Gradient (Path #3)')
 
-    # Plot true paths
-    for data in path3_data:
-        plt.plot(data['true_x'], data['true_y'], label=f'True Path {data["label"]}', linewidth=2, alpha=0.75)
+    # Define distinct colormaps for each path
+    colormaps = [cm.Blues, cm.Reds]  # Different colormaps for the two paths
+    path_labels = set()  # To avoid duplicate legend entries
 
-    # Plot predicted quadrants
-    colors = {1: 'red', 2: 'blue', 3: 'green', 4: 'purple'}
-    for data in path3_data:
+    # Plot true paths and predicted quadrants with gradient
+    for idx, data in enumerate(path3_data):
         true_x = data['true_x']
         true_y = data['true_y']
         pred_quadrants = data['pred_quadrants']
+        label = data['label']
+        
+        # Plot true path with color gradient
+        points = np.array([true_x, true_y]).T
+        segments = np.concatenate([points[:-1, None], points[1:, None]], axis=1)
+        norm = plt.Normalize(0, len(true_x) - 1)
+        lc = plt.cm.ScalarMappable(norm=norm, cmap=colormaps[idx % len(colormaps)])
+        line = plt.plot(true_x, true_y, label=f'True Path {label}' if label not in path_labels else "", 
+                        linewidth=2, alpha=0.75, zorder=1)
+        path_labels.add(label)
+        
+        # Add gradient to the line
+        for i in range(len(segments)):
+            plt.plot(segments[i, :, 0], segments[i, :, 1], c=lc.to_rgba(i), linewidth=2, alpha=0.75, zorder=1)
+        
+        # Plot predicted quadrants as scatter points with same gradient
+        colors = {1: 'red', 2: 'blue', 3: 'green', 4: 'purple'}
         for quad in [1, 2, 3, 4]:
             mask = pred_quadrants == quad
-            plt.scatter(true_x[mask], true_y[mask], c=colors[quad], marker='x', s=100, alpha=0.6, 
-                        label=f'Predicted Q{quad}' if quad == 1 else "")
+            if mask.any():
+                scatter_x = true_x[mask]
+                scatter_y = true_y[mask]
+                indices = np.arange(len(true_x))[mask]
+                plt.scatter(scatter_x, scatter_y, c=lc.to_rgba(indices), marker='x', s=100, alpha=0.6,
+                           label=f'Predicted Q{quad} ({label})' if quad == 1 and label not in path_labels else "", zorder=2)
+                path_labels.add(label)
 
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()

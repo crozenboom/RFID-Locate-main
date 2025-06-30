@@ -54,8 +54,8 @@ def trilateration(rssi_values, antenna_positions):
         return np.nan, np.nan
 
 # Load metadata
-line_metadata = pd.read_csv('/Users/calebrozenboom/Documents/RFID-Library/Testing/MovementTesting/MoveTest/LineMetadata.csv')
-circle_metadata = pd.read_csv('/Users/RFID-Library/Testing/MovementTesting/CircleTest/CircleMetadata.csv')
+line_metadata = pd.read_csv('/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/LineTests/LineMetadata.csv')
+circle_metadata = pd.read_csv('/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/CircleTests/CircleMetadata.csv')
 line_metadata.columns = line_metadata.columns.str.strip()
 circle_metadata.columns = circle_metadata.columns.str.strip()
 line_metadata = line_metadata[line_metadata['raw_CSV_filename'].str.startswith('movetest')]
