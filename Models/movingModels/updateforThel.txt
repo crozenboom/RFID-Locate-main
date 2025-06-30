@@ -1,5 +1,5 @@
 RFID Moving Test Model Evolution
-Updated: June 10, 2025
+Updated: June 30, 2025
 
 1. Start (MoveTest1, GradientBoosting)
 Changes: Used GradientBoostingRegressor on MoveTest1 + Test8, rssi_Ant1-4, phase_angle_Ant1-4.
