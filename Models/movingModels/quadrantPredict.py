@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, confusion_matrix
 from imblearn.over_sampling import SMOTE
@@ -10,6 +10,7 @@ import seaborn as sns
 import joblib
 import os
 import re
+from time import time
 
 # Define quadrant mapping function
 def coordinates_to_quadrant(x, y):
@@ -71,9 +72,12 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                     print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
                     print(f"Setting all doppler_frequency to 0 in static file {fname}.")
                     df['doppler_frequency'] = 0  # Static tags should have zero Doppler
-                # Log rssi and phase_angle ranges
+                # Filter rssi outliers
                 if 'rssi' in df.columns:
                     print(f"RSSI range in {fname}: {df['rssi'].min()} to {df['rssi'].max()}")
+                    outliers_rssi = (df['rssi'] < -100) | (df['rssi'] > -40)
+                    print(f"Outliers in rssi (<-100 or >-40 dBm) in {fname}: {outliers_rssi.sum()}")
+                    df.loc[outliers_rssi, 'rssi'] = np.nan
                 if 'phase_angle' in df.columns:
                     print(f"Phase angle range in {fname}: {df['phase_angle'].min()} to {df['phase_angle'].max()}")
                 # Parse coordinates from filename
@@ -91,6 +95,16 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                 )
                 pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
                 pivoted = pivoted.reset_index()
+                # Fill NaNs with mean for this file
+                for col in pivoted.columns:
+                    if col.startswith(('rssi_', 'phase_angle_', 'doppler_frequency_')):
+                        pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
+                # Check for remaining NaNs
+                nan_counts = pivoted.isna().sum()
+                print(f"NaN counts in {fname} after imputation: {nan_counts[nan_counts > 0].to_dict()}")
+                if pivoted.isna().any().any():
+                    print(f"Warning: Remaining NaNs in {fname} after imputation. Dropping rows.")
+                    pivoted = pivoted.dropna()
                 pivoted['x_true'] = x_true
                 pivoted['y_true'] = y_true
                 pivoted['quadrant'] = pivoted.apply(lambda r: coordinates_to_quadrant(r['x_true'], r['y_true']), axis=1)
@@ -142,10 +156,13 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                     print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
                     outliers_doppler = df['doppler_frequency'].abs() > 1000
                     print(f"Outliers in doppler_frequency (>1000 Hz) in {fname}: {outliers_doppler.sum()}")
-                    df.loc[outliers_doppler, 'doppler_frequency'] = np.nan  # Will be filled with mean later
-                # Log rssi and phase_angle ranges
+                    df.loc[outliers_doppler, 'doppler_frequency'] = np.nan
+                # Filter rssi outliers
                 if 'rssi' in df.columns:
                     print(f"RSSI range in {fname}: {df['rssi'].min()} to {df['rssi'].max()}")
+                    outliers_rssi = (df['rssi'] < -100) | (df['rssi'] > -40)
+                    print(f"Outliers in rssi (<-100 or >-40 dBm) in {fname}: {outliers_rssi.sum()}")
+                    df.loc[outliers_rssi, 'rssi'] = np.nan
                 if 'phase_angle' in df.columns:
                     print(f"Phase angle range in {fname}: {df['phase_angle'].min()} to {df['phase_angle'].max()}")
                 df['timestamp'] = df['timestamp'].round(3)
@@ -157,6 +174,16 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                 )
                 pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
                 pivoted = pivoted.reset_index()
+                # Fill NaNs with mean for this file
+                for col in pivoted.columns:
+                    if col.startswith(('rssi_', 'phase_angle_', 'doppler_frequency_')):
+                        pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
+                # Check for remaining NaNs
+                nan_counts = pivoted.isna().sum()
+                print(f"NaN counts in {fname} after imputation: {nan_counts[nan_counts > 0].to_dict()}")
+                if pivoted.isna().any().any():
+                    print(f"Warning: Remaining NaNs in {fname} after imputation. Dropping rows.")
+                    pivoted = pivoted.dropna()
                 x, y = interpolate_circle_path(pivoted['timestamp'], row['center_x_true'], row['center_y_true'], row['radius_true'], row['direction'], num_points=500)
                 pivoted['x_true'] = x
                 pivoted['y_true'] = y
@@ -203,6 +230,7 @@ def generate_synthetic_static_data(n_points_per_quadrant=100):
 # Main processing
 def main():
     """Main function to load data, train model, and generate outputs."""
+    start_time = time()
     # File paths
     metadata_file = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/CircleTests/CircleMetadata.csv'
     data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/CircleTests'
@@ -243,8 +271,12 @@ def main():
     features = [f'rssi_{i}' for i in range(1, 5)] + [f'phase_angle_{i}' for i in range(1, 5)] + [f'doppler_frequency_{i}' for i in range(1, 5)] + ['rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff']
     target = 'quadrant'
     
-    # Handle missing values
-    data[features] = data[features].fillna(data[features].mean())
+    # Verify no NaNs before splitting
+    nan_counts = data[features].isna().sum()
+    print(f"NaN counts in features before splitting: {nan_counts[nan_counts > 0].to_dict()}")
+    if data[features].isna().any().any():
+        print("Warning: Dropping rows with remaining NaNs before splitting.")
+        data = data.dropna(subset=features)
     
     # Split data
     X = data[features]
@@ -253,6 +285,7 @@ def main():
     
     # Apply SMOTE to balance training data
     smote = SMOTE(random_state=42)
+    print("Applying SMOTE...")
     X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train)
     print("Sample counts after SMOTE:")
     print(pd.Series(y_train_balanced).value_counts())
@@ -262,20 +295,22 @@ def main():
     X_train_scaled = scaler.fit_transform(X_train_balanced)
     X_test_scaled = scaler.transform(X_test)
     
-    # Train Gradient Boosting
-    print("Training Gradient Boosting...")
-    gbc = GradientBoostingClassifier(random_state=42)
+    # Train Random Forest with progress logging
+    print("Training Random Forest...")
+    rfc = RandomForestClassifier(random_state=42, class_weight='balanced')
     param_grid = {
-        'n_estimators': [100, 200, 300],
-        'max_depth': [3, 5, 7],
-        'learning_rate': [0.01, 0.1, 0.2]
+        'n_estimators': [200, 300],
+        'max_depth': [20, 30],
+        'min_samples_split': [2],
+        'min_samples_leaf': [1]
     }
-    grid_search = GridSearchCV(gbc, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+    grid_search = GridSearchCV(rfc, param_grid, cv=5, scoring='accuracy', n_jobs=-1, verbose=2)
     grid_search.fit(X_train_scaled, y_train_balanced)
     
     # Best model
     model = grid_search.best_estimator_
     print(f"Best parameters: {grid_search.best_params_}")
+    print(f"Training time: {(time() - start_time) / 60:.2f} minutes")
     
     # Evaluate
     y_pred = model.predict(X_test_scaled)
@@ -294,9 +329,10 @@ def main():
             print(f"Accuracy for {q}: {acc:.4f}")
             results.append({'Quadrant': q, 'Accuracy': acc})
     
-    # Per-file accuracy (dynamic and static data)
+    # Per-file accuracy
+    file_results = []
     for dataset, name in [(dynamic_data, 'dynamic'), (static_data, 'static')]:
-        test_data = dataset[dataset['timestamp'].isin(X_test.index)]
+        test_data = dataset[dataset.index.isin(X_test.index)]
         if not test_data.empty:
             test_data = test_data.copy()
             test_data['rssi_1_2_diff'] = test_data['rssi_1'] - test_data['rssi_2']
@@ -312,19 +348,31 @@ def main():
             for filename in test_data['filename'].unique():
                 mask = test_data['filename'] == filename
                 file_acc = accuracy_score(y_test_data[mask], y_pred_data[mask])
-                file_results = {'Dataset': name, 'Filename': filename, 'Total Accuracy': file_acc}
+                file_results.append({
+                    'Dataset': name,
+                    'Filename': filename,
+                    'Total Accuracy': file_acc
+                })
                 for q in quadrants:
                     q_mask = (test_data['filename'] == filename) & (y_test_data == q)
                     if q_mask.sum() > 0:
-                        q_acc = accuracy_score(y_test_data[q_mask], y_pred_data[q_mask])
-                        file_results[f'{q} Accuracy'] = q_acc
+                        file_results[-1][f'{q} Accuracy'] = accuracy_score(y_test_data[q_mask], y_pred_data[q_mask])
                     else:
-                        file_results[f'{q} Accuracy'] = np.nan
-                results.append(file_results)
+                        file_results[-1][f'{q} Accuracy'] = np.nan
     
     # Save results
+    results_df = pd.DataFrame(results + file_results)
     results_file = 'quadrant_results.csv'
-    pd.DataFrame(results).to_csv(results_file, index=False)
+    with open(results_file, 'w') as f:
+        f.write(
+            "# Quadrant and Per-File Results\n"
+            "# This file contains quadrant accuracies and per-file accuracies for dynamic and static data.\n"
+            "# - Quadrant: Q1 (x<7.5, y>=7.5), Q2 (x>=7.5, y>=7.5), Q3 (x<7.5, y<7.5), Q4 (x>=7.5, y<7.5).\n"
+            "# - Accuracy: Prediction accuracy for each quadrant or file (0 to 1).\n"
+            "# - Dataset: 'dynamic' (CircleTests) or 'static' (Test8).\n"
+            "# - Filename: Name of the data file (e.g., CircleTest1-1.csv, (12,3).csv).\n"
+        )
+    results_df.to_csv(results_file, mode='a', index=False)
     print(f"Results saved to: {os.path.abspath(results_file)}")
     
     # Feature importance
@@ -345,11 +393,10 @@ def main():
     with open(feature_imp_file, 'w') as f:
         f.write(
             "# Feature Importance\n"
-            "# This file shows the importance of each feature in the Gradient Boosting model.\n"
+            "# This file shows the importance of each feature in the Random Forest model.\n"
             "# - Feature: The signal feature (rssi, phase_angle, doppler_frequency) or pairwise difference for each antenna (1-4).\n"
             "# - Importance: The relative importance score (higher means more contribution to quadrant prediction).\n"
             "# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or difference pair (e.g., A1-A2).\n"
-            "# Interpretation: Features with higher importance are more critical for distinguishing quadrants.\n"
         )
     feature_imp_df.to_csv(feature_imp_file, mode='a', index=False)
     print(f"Feature importance saved to: {os.path.abspath(feature_imp_file)}")
@@ -371,8 +418,6 @@ def main():
             "# - Rows: Actual quadrants (Q1, Q2, Q3, Q4).\n"
             "# - Columns: Predicted quadrants (Q1, Q2, Q3, Q4).\n"
             "# - Values: Number of samples for each actual-predicted pair.\n"
-            "# Interpretation: Diagonal values are correct predictions. Off-diagonal values are errors (e.g., Q1 predicted as Q2).\n"
-            "# Quadrant Definitions: Q1 (x<7.5, y>=7.5), Q2 (x>=7.5, y>=7.5), Q3 (x<7.5, y<7.5), Q4 (x>=7.5, y<7.5).\n"
         )
     cm_df.to_csv(cm_file, mode='a')
     print(f"Confusion matrix saved to: {os.path.abspath(cm_file)}")
