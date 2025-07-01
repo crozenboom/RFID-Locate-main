@@ -1,16 +1,19 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix
+from imblearn.over_sampling import SMOTE
 import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
 import os
+import re
 
 # Define quadrant mapping function
 def coordinates_to_quadrant(x, y):
+    """Map x, y coordinates to quadrants in a 15x15 ft grid."""
     if x < 7.5 and y >= 7.5:
         return 'Q1'  # Top-left
     elif x >= 7.5 and y >= 7.5:
@@ -20,8 +23,24 @@ def coordinates_to_quadrant(x, y):
     else:
         return 'Q4'  # Bottom-right
 
-# Interpolate circular path coordinates
-def interpolate_circle_path(timestamps, center_x, center_y, radius, direction, num_points=100):
+# Parse coordinates from Test8 filenames
+def parse_test8_coordinates(filename):
+    """Extract x, y coordinates from filenames like (12,3).csv."""
+    match = re.match(r'\((\d+),(\d+)\)\.csv', filename)
+    if match:
+        x, y = float(match.group(1)), float(match.group(2))
+        if 0 <= x <= 15 and 0 <= y <= 15:
+            return x, y
+        else:
+            print(f"Warning: Coordinates ({x}, {y}) in {filename} are outside 15x15 grid.")
+            return None, None
+    else:
+        print(f"Warning: Invalid filename format for {filename}, expecting (x,y).csv.")
+        return None, None
+
+# Interpolate circular path coordinates for dynamic data
+def interpolate_circle_path(timestamps, center_x, center_y, radius, direction, num_points=500):
+    """Interpolate x, y coordinates for circular paths based on timestamps."""
     t = np.linspace(0, 1, num_points)
     timestamps = np.array(timestamps)
     t_normalized = (timestamps - timestamps.min()) / (timestamps.max() - timestamps.min())
@@ -34,52 +53,129 @@ def interpolate_circle_path(timestamps, center_x, center_y, radius, direction, n
     return x, y
 
 # Load and preprocess data
-def load_and_preprocess_data(metadata_file, data_dir, is_static=False):
-    metadata = pd.read_csv(metadata_file)
+def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
+    """Load and preprocess RFID data from CSV files, handling dynamic or static data."""
     data_frames = []
     
-    for _, row in metadata.iterrows():
-        file_path = os.path.join(data_dir, f"{row['raw_CSV_filename']}.csv")
-        if not os.path.exists(file_path):
-            print(f"Warning: File {file_path} not found, skipping.")
-            continue
+    if is_static:
+        # Handle static data (Test8 files like (12,3).csv)
+        for fname in os.listdir(data_dir):
+            if not fname.endswith('.csv'):
+                continue
+            file_path = os.path.join(data_dir, fname)
+            print(f"Processing static file: {file_path}")
+            try:
+                df = pd.read_csv(file_path)
+                # Log and clean doppler_frequency
+                if 'doppler_frequency' in df.columns:
+                    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
+                    print(f"Setting all doppler_frequency to 0 in static file {fname}.")
+                    df['doppler_frequency'] = 0  # Static tags should have zero Doppler
+                # Log rssi and phase_angle ranges
+                if 'rssi' in df.columns:
+                    print(f"RSSI range in {fname}: {df['rssi'].min()} to {df['rssi'].max()}")
+                if 'phase_angle' in df.columns:
+                    print(f"Phase angle range in {fname}: {df['phase_angle'].min()} to {df['phase_angle'].max()}")
+                # Parse coordinates from filename
+                x_true, y_true = parse_test8_coordinates(fname)
+                if x_true is None or y_true is None:
+                    print(f"Skipping {file_path} due to invalid coordinates.")
+                    continue
+                # Pivot data to get one row per timestamp
+                df['timestamp'] = df['timestamp'].round(3)
+                pivoted = df.pivot_table(
+                    index='timestamp',
+                    columns='antenna',
+                    values=['rssi', 'phase_angle', 'doppler_frequency'],
+                    aggfunc='mean'
+                )
+                pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
+                pivoted = pivoted.reset_index()
+                pivoted['x_true'] = x_true
+                pivoted['y_true'] = y_true
+                pivoted['quadrant'] = pivoted.apply(lambda r: coordinates_to_quadrant(r['x_true'], r['y_true']), axis=1)
+                pivoted['filename'] = fname
+                data_frames.append(pivoted)
+            except Exception as e:
+                print(f"Error processing {file_path}: {str(e)}")
+                continue
+    else:
+        # Handle dynamic data (CircleTests with metadata)
+        try:
+            print(f"Looking for metadata file at: {os.path.abspath(file_or_dir)}")
+            metadata = pd.read_csv(file_or_dir)
+            metadata.columns = metadata.columns.str.strip()
+            print(f"Metadata columns: {list(metadata.columns)}")
+            required_dynamic_cols = ['center_x_true', 'center_y_true', 'radius_true', 'direction']
+            if not all(col in metadata.columns for col in required_dynamic_cols):
+                print(f"Error: Missing required columns in metadata. Required: {required_dynamic_cols}, Found: {list(metadata.columns)}")
+                return None
+        except FileNotFoundError:
+            print(f"Error: Metadata file '{file_or_dir}' not found.")
+            return None
         
-        df = pd.read_csv(file_path)
-        # Pivot data to get one row per timestamp
-        df['timestamp'] = df['timestamp'].round(3)  # Round to handle floating-point precision
-        pivoted = df.pivot_table(
-            index='timestamp',
-            columns='antenna',
-            values=['rssi', 'phase_angle'],
-            aggfunc='mean'
-        )
-        pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
-        pivoted = pivoted.reset_index()
+        print(f"Available subfolders in {data_dir}:")
+        print([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))])
         
-        if is_static:
-            # Assume static data has x_true, y_true columns
-            # Replace with your actual column names
-            if 'x_true' in df.columns and 'y_true' in df.columns:
-                pivoted['x_true'] = df['x_true'].iloc[0]
-                pivoted['y_true'] = df['y_true'].iloc[0]
-                pivoted['quadrant'] = coordinates_to_quadrant(pivoted['x_true'], pivoted['y_true'])
-        else:
-            # Interpolate (x, y) for dynamic circular paths
-            x, y = interpolate_circle_path(pivoted['timestamp'], row['center_x_true'], row['center_y_true'], row['radius_true'], row['direction'])
-            pivoted['x_true'] = x
-            pivoted['y_true'] = y
-            pivoted['quadrant'] = pivoted.apply(lambda r: coordinates_to_quadrant(r['x_true'], r['y_true']), axis=1)
-        
-        pivoted['filename'] = row['raw_CSV_filename']
-        data_frames.append(pivoted)
+        for _, row in metadata.iterrows():
+            test_num = row['raw_CSV_filename'].split('-')[0].replace('circletest', '')
+            subfolder = f'CircleTest{test_num}'
+            possible_filenames = [
+                f'CircleTest{test_num}-{row["raw_CSV_filename"].split("-")[1]}.csv',
+                f'circletest{test_num}-{row["raw_CSV_filename"].split("-")[1]}.csv'
+            ]
+            file_path = None
+            for fname in possible_filenames:
+                temp_path = os.path.join(data_dir, subfolder, fname)
+                if os.path.exists(temp_path):
+                    file_path = temp_path
+                    break
+            if not file_path:
+                print(f"Warning: File not found for {row['raw_CSV_filename']} in {os.path.join(data_dir, subfolder)}. Tried: {possible_filenames}")
+                continue
+            
+            print(f"Processing file: {file_path}")
+            try:
+                df = pd.read_csv(file_path)
+                # Filter doppler_frequency outliers
+                if 'doppler_frequency' in df.columns:
+                    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
+                    outliers_doppler = df['doppler_frequency'].abs() > 1000
+                    print(f"Outliers in doppler_frequency (>1000 Hz) in {fname}: {outliers_doppler.sum()}")
+                    df.loc[outliers_doppler, 'doppler_frequency'] = np.nan  # Will be filled with mean later
+                # Log rssi and phase_angle ranges
+                if 'rssi' in df.columns:
+                    print(f"RSSI range in {fname}: {df['rssi'].min()} to {df['rssi'].max()}")
+                if 'phase_angle' in df.columns:
+                    print(f"Phase angle range in {fname}: {df['phase_angle'].min()} to {df['phase_angle'].max()}")
+                df['timestamp'] = df['timestamp'].round(3)
+                pivoted = df.pivot_table(
+                    index='timestamp',
+                    columns='antenna',
+                    values=['rssi', 'phase_angle', 'doppler_frequency'],
+                    aggfunc='mean'
+                )
+                pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
+                pivoted = pivoted.reset_index()
+                x, y = interpolate_circle_path(pivoted['timestamp'], row['center_x_true'], row['center_y_true'], row['radius_true'], row['direction'], num_points=500)
+                pivoted['x_true'] = x
+                pivoted['y_true'] = y
+                pivoted['quadrant'] = pivoted.apply(lambda r: coordinates_to_quadrant(r['x_true'], r['y_true']), axis=1)
+                pivoted['filename'] = row['raw_CSV_filename']
+                data_frames.append(pivoted)
+            except Exception as e:
+                print(f"Error processing {file_path}: {str(e)}")
+                continue
     
     if not data_frames:
-        raise ValueError("No valid data files loaded.")
+        print("No valid data files loaded.")
+        return None
     
     return pd.concat(data_frames, ignore_index=True)
 
-# Generate synthetic stationary data (replace with actual data if available)
+# Generate synthetic stationary data
 def generate_synthetic_static_data(n_points_per_quadrant=100):
+    """Generate synthetic static data for training if real data is unavailable."""
     np.random.seed(42)
     quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
     x_ranges = {'Q1': (0, 7.5), 'Q2': (7.5, 15), 'Q3': (0, 7.5), 'Q4': (7.5, 15)}
@@ -89,7 +185,6 @@ def generate_synthetic_static_data(n_points_per_quadrant=100):
     for q in quadrants:
         x = np.random.uniform(x_ranges[q][0], x_ranges[q][1], n_points_per_quadrant)
         y = np.random.uniform(y_ranges[q][0], y_ranges[q][1], n_points_per_quadrant)
-        # Simulate RSSI and phase_angle (adjust ranges based on your data)
         for i in range(n_points_per_quadrant):
             row = {
                 'timestamp': i,
@@ -98,36 +193,54 @@ def generate_synthetic_static_data(n_points_per_quadrant=100):
                 'quadrant': q
             }
             for ant in range(1, 5):
-                # Simulate RSSI (-80 to -40 dBm) and phase_angle (0 to 4096)
                 row[f'rssi_{ant}'] = np.random.uniform(-80, -40)
                 row[f'phase_angle_{ant}'] = np.random.uniform(0, 4096)
+                row[f'doppler_frequency_{ant}'] = 0  # Static data
             data.append(row)
     
     return pd.DataFrame(data)
 
 # Main processing
 def main():
-    # File paths (update as needed)
-    metadata_file = 'Testing/MovementTesting/CircleTests/CircleMetadata.csv'
+    """Main function to load data, train model, and generate outputs."""
+    # File paths
+    metadata_file = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/CircleTests/CircleMetadata.csv'
     data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/CircleTests'
-    static_data_file = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Test8'
+    static_data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Test8'
     
-    # Load data
+    # Load dynamic data
     print("Loading dynamic data...")
     dynamic_data = load_and_preprocess_data(metadata_file, data_dir, is_static=False)
+    if dynamic_data is None:
+        print("Exiting due to failure in loading dynamic data.")
+        return
     
-    print("Loading/generating static data...")
-    if os.path.exists(static_data_file):
-        static_data = load_and_preprocess_data(static_data_file, data_dir, is_static=True)
+    # Load static data
+    print("Loading static data...")
+    if os.path.exists(static_data_dir):
+        static_data = load_and_preprocess_data(None, static_data_dir, is_static=True)
+        if static_data is None:
+            print("No valid static data files found, using synthetic data.")
+            static_data = generate_synthetic_static_data()
     else:
-        print("Warning: Static data file not found, generating synthetic data.")
+        print("Warning: Static data directory not found, generating synthetic data.")
         static_data = generate_synthetic_static_data()
     
     # Combine datasets
     data = pd.concat([static_data, dynamic_data], ignore_index=True)
     
+    # Add pairwise feature differences
+    data['rssi_1_2_diff'] = data['rssi_1'] - data['rssi_2']
+    data['rssi_3_4_diff'] = data['rssi_3'] - data['rssi_4']
+    data['phase_angle_1_2_diff'] = data['phase_angle_1'] - data['phase_angle_2']
+    data['phase_angle_3_4_diff'] = data['phase_angle_3'] - data['phase_angle_4']
+    
+    # Log sample counts per quadrant
+    print("Sample counts per quadrant:")
+    print(data['quadrant'].value_counts())
+    
     # Features and target
-    features = [f'rssi_{i}' for i in range(1, 5)] + [f'phase_angle_{i}' for i in range(1, 5)]
+    features = [f'rssi_{i}' for i in range(1, 5)] + [f'phase_angle_{i}' for i in range(1, 5)] + [f'doppler_frequency_{i}' for i in range(1, 5)] + ['rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff']
     target = 'quadrant'
     
     # Handle missing values
@@ -138,21 +251,27 @@ def main():
     y = data[target]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
+    # Apply SMOTE to balance training data
+    smote = SMOTE(random_state=42)
+    X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train)
+    print("Sample counts after SMOTE:")
+    print(pd.Series(y_train_balanced).value_counts())
+    
     # Scale features
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
+    X_train_scaled = scaler.fit_transform(X_train_balanced)
     X_test_scaled = scaler.transform(X_test)
     
-    # Train Random Forest
-    print("Training Random Forest...")
-    rf = RandomForestClassifier(random_state=42)
+    # Train Gradient Boosting
+    print("Training Gradient Boosting...")
+    gbc = GradientBoostingClassifier(random_state=42)
     param_grid = {
-        'n_estimators': [100, 200],
-        'max_depth': [10, 20, None],
-        'min_samples_split': [2, 5]
+        'n_estimators': [100, 200, 300],
+        'max_depth': [3, 5, 7],
+        'learning_rate': [0.01, 0.1, 0.2]
     }
-    grid_search = GridSearchCV(rf, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
-    grid_search.fit(X_train_scaled, y_train)
+    grid_search = GridSearchCV(gbc, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+    grid_search.fit(X_train_scaled, y_train_balanced)
     
     # Best model
     model = grid_search.best_estimator_
@@ -175,42 +294,89 @@ def main():
             print(f"Accuracy for {q}: {acc:.4f}")
             results.append({'Quadrant': q, 'Accuracy': acc})
     
-    # Per-file accuracy (dynamic data only)
-    dynamic_test = dynamic_data[dynamic_data['timestamp'].isin(X_test.index)]
-    if not dynamic_test.empty:
-        X_dynamic_test = dynamic_test[features]
-        X_dynamic_test_scaled = scaler.transform(X_dynamic_test)
-        y_dynamic_test = dynamic_test[target]
-        y_dynamic_pred = model.predict(X_dynamic_test_scaled)
-        
-        for filename in dynamic_test['filename'].unique():
-            mask = dynamic_test['filename'] == filename
-            file_acc = accuracy_score(y_dynamic_test[mask], y_dynamic_pred[mask])
-            file_results = {'Filename': filename, 'Total Accuracy': file_acc}
-            for q in quadrants:
-                q_mask = (dynamic_test['filename'] == filename) & (y_dynamic_test == q)
-                if q_mask.sum() > 0:
-                    q_acc = accuracy_score(y_dynamic_test[q_mask], y_dynamic_pred[q_mask])
-                    file_results[f'{q} Accuracy'] = q_acc
-                else:
-                    file_results[f'{q} Accuracy'] = np.nan
-            results.append(file_results)
+    # Per-file accuracy (dynamic and static data)
+    for dataset, name in [(dynamic_data, 'dynamic'), (static_data, 'static')]:
+        test_data = dataset[dataset['timestamp'].isin(X_test.index)]
+        if not test_data.empty:
+            test_data = test_data.copy()
+            test_data['rssi_1_2_diff'] = test_data['rssi_1'] - test_data['rssi_2']
+            test_data['rssi_3_4_diff'] = test_data['rssi_3'] - test_data['rssi_4']
+            test_data['phase_angle_1_2_diff'] = test_data['phase_angle_1'] - test_data['phase_angle_2']
+            test_data['phase_angle_3_4_diff'] = test_data['phase_angle_3'] - test_data['phase_angle_4']
+            X_test_data = test_data[features]
+            X_test_data = X_test_data.fillna(X_test_data.mean())
+            X_test_data_scaled = scaler.transform(X_test_data)
+            y_test_data = test_data[target]
+            y_pred_data = model.predict(X_test_data_scaled)
+            
+            for filename in test_data['filename'].unique():
+                mask = test_data['filename'] == filename
+                file_acc = accuracy_score(y_test_data[mask], y_pred_data[mask])
+                file_results = {'Dataset': name, 'Filename': filename, 'Total Accuracy': file_acc}
+                for q in quadrants:
+                    q_mask = (test_data['filename'] == filename) & (y_test_data == q)
+                    if q_mask.sum() > 0:
+                        q_acc = accuracy_score(y_test_data[q_mask], y_pred_data[q_mask])
+                        file_results[f'{q} Accuracy'] = q_acc
+                    else:
+                        file_results[f'{q} Accuracy'] = np.nan
+                results.append(file_results)
     
     # Save results
-    pd.DataFrame(results).to_csv('quadrant_results.csv', index=False)
+    results_file = 'quadrant_results.csv'
+    pd.DataFrame(results).to_csv(results_file, index=False)
+    print(f"Results saved to: {os.path.abspath(results_file)}")
     
     # Feature importance
     importances = model.feature_importances_
-    feature_imp_df = pd.DataFrame({'Feature': features, 'Importance': importances})
+    antenna_positions = {
+        'rssi_1': 'A1=[0,0]', 'rssi_2': 'A2=[0,15]', 'rssi_3': 'A3=[15,15]', 'rssi_4': 'A4=[15,0]',
+        'phase_angle_1': 'A1=[0,0]', 'phase_angle_2': 'A2=[0,15]', 'phase_angle_3': 'A3=[15,15]', 'phase_angle_4': 'A4=[15,0]',
+        'doppler_frequency_1': 'A1=[0,0]', 'doppler_frequency_2': 'A2=[0,15]', 'doppler_frequency_3': 'A3=[15,15]', 'doppler_frequency_4': 'A4=[15,0]',
+        'rssi_1_2_diff': 'A1-A2', 'rssi_3_4_diff': 'A3-A4', 'phase_angle_1_2_diff': 'A1-A2', 'phase_angle_3_4_diff': 'A3-A4'
+    }
+    feature_imp_df = pd.DataFrame({
+        'Feature': features,
+        'Importance': importances,
+        'Antenna_Position': [antenna_positions[f] for f in features]
+    })
     feature_imp_df = feature_imp_df.sort_values('Importance', ascending=False)
-    plt.figure(figsize=(10, 6))
+    feature_imp_file = 'feature_importance.csv'
+    with open(feature_imp_file, 'w') as f:
+        f.write(
+            "# Feature Importance\n"
+            "# This file shows the importance of each feature in the Gradient Boosting model.\n"
+            "# - Feature: The signal feature (rssi, phase_angle, doppler_frequency) or pairwise difference for each antenna (1-4).\n"
+            "# - Importance: The relative importance score (higher means more contribution to quadrant prediction).\n"
+            "# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or difference pair (e.g., A1-A2).\n"
+            "# Interpretation: Features with higher importance are more critical for distinguishing quadrants.\n"
+        )
+    feature_imp_df.to_csv(feature_imp_file, mode='a', index=False)
+    print(f"Feature importance saved to: {os.path.abspath(feature_imp_file)}")
+    
+    plt.figure(figsize=(12, 8))
     sns.barplot(x='Importance', y='Feature', data=feature_imp_df)
-    plt.title('Feature Importance')
+    plt.title('Feature Importance (Antenna Positions: A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0])')
     plt.savefig('feature_importance.png')
     plt.close()
     
     # Confusion matrix
     cm = confusion_matrix(y_test, y_pred, labels=quadrants)
+    cm_df = pd.DataFrame(cm, index=quadrants, columns=quadrants)
+    cm_file = 'confusion_matrix.csv'
+    with open(cm_file, 'w') as f:
+        f.write(
+            "# Confusion Matrix\n"
+            "# This file shows the confusion matrix for quadrant predictions.\n"
+            "# - Rows: Actual quadrants (Q1, Q2, Q3, Q4).\n"
+            "# - Columns: Predicted quadrants (Q1, Q2, Q3, Q4).\n"
+            "# - Values: Number of samples for each actual-predicted pair.\n"
+            "# Interpretation: Diagonal values are correct predictions. Off-diagonal values are errors (e.g., Q1 predicted as Q2).\n"
+            "# Quadrant Definitions: Q1 (x<7.5, y>=7.5), Q2 (x>=7.5, y>=7.5), Q3 (x<7.5, y<7.5), Q4 (x>=7.5, y<7.5).\n"
+        )
+    cm_df.to_csv(cm_file, mode='a')
+    print(f"Confusion matrix saved to: {os.path.abspath(cm_file)}")
+    
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', xticklabels=quadrants, yticklabels=quadrants)
     plt.title('Confusion Matrix')

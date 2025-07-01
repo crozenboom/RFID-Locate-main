@@ -1,0 +1,19 @@
+# Feature Importance
+# This file shows the importance of each feature in the Random Forest model.
+# - Feature: The signal feature (rssi, phase_angle, doppler_frequency) for each antenna (1-4).
+# - Importance: The relative importance score (higher means more contribution to quadrant prediction).
+# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]).
+# Interpretation: Features with higher importance are more critical for distinguishing quadrants.
+Feature,Importance,Antenna_Position
+rssi_1,0.14829318805041763,"A1=[0,0]"
+rssi_4,0.11406166574966012,"A4=[15,0]"
+phase_angle_1,0.11204456492708188,"A1=[0,0]"
+rssi_3,0.09882405345479857,"A3=[15,15]"
+doppler_frequency_1,0.09151987500970823,"A1=[0,0]"
+phase_angle_4,0.0838424824065286,"A4=[15,0]"
+phase_angle_3,0.07360411338859867,"A3=[15,15]"
+doppler_frequency_4,0.06912674734302876,"A4=[15,0]"
+doppler_frequency_3,0.06210663348010505,"A3=[15,15]"
+rssi_2,0.05333148760431227,"A2=[0,15]"
+phase_angle_2,0.04991363248832266,"A2=[0,15]"
+doppler_frequency_2,0.04333155609743771,"A2=[0,15]"

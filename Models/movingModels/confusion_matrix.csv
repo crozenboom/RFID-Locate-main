@@ -1,0 +1,12 @@
+# Confusion Matrix
+# This file shows the confusion matrix for quadrant predictions.
+# - Rows: Actual quadrants (Q1, Q2, Q3, Q4).
+# - Columns: Predicted quadrants (Q1, Q2, Q3, Q4).
+# - Values: Number of samples for each actual-predicted pair.
+# Interpretation: Diagonal values are correct predictions. Off-diagonal values are errors (e.g., Q1 predicted as Q2).
+# Quadrant Definitions: Q1 (x<7.5, y>=7.5), Q2 (x>=7.5, y>=7.5), Q3 (x<7.5, y<7.5), Q4 (x>=7.5, y<7.5).
+,Q1,Q2,Q3,Q4
+Q1,751,364,283,491
+Q2,353,542,261,407
+Q3,384,197,621,375
+Q4,418,282,265,775
