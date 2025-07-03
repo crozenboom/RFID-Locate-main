@@ -1,3 +1,4 @@
+# 89% VERSION
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split, GridSearchCV
@@ -68,10 +69,10 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
             try:
                 df = pd.read_csv(file_path)
                 # Log and clean doppler_frequency
-                if 'doppler_frequency' in df.columns:
-                    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
-                    print(f"Setting all doppler_frequency to 0 in static file {fname}.")
-                    df['doppler_frequency'] = 0  # Static tags should have zero Doppler
+                #if 'doppler_frequency' in df.columns:
+                #    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
+                #    print(f"Setting all doppler_frequency to 0 in static file {fname}.")
+                #    df['doppler_frequency'] = 0  # Static tags should have zero Doppler
                 # Filter rssi outliers
                 if 'rssi' in df.columns:
                     print(f"RSSI range in {fname}: {df['rssi'].min()} to {df['rssi'].max()}")
@@ -90,14 +91,14 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                 pivoted = df.pivot_table(
                     index='timestamp',
                     columns='antenna',
-                    values=['rssi', 'phase_angle', 'doppler_frequency'],
+                    values=['rssi', 'phase_angle'], #, 'doppler_frequency'],
                     aggfunc='mean'
                 )
                 pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
                 pivoted = pivoted.reset_index()
                 # Fill NaNs with mean for this file
                 for col in pivoted.columns:
-                    if col.startswith(('rssi_', 'phase_angle_', 'doppler_frequency_')):
+                    if col.startswith(('rssi_', 'phase_angle_')): #, 'doppler_frequency_')):
                         pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
                 # Check for remaining NaNs
                 nan_counts = pivoted.isna().sum()
@@ -152,11 +153,11 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
             try:
                 df = pd.read_csv(file_path)
                 # Filter doppler_frequency outliers
-                if 'doppler_frequency' in df.columns:
-                    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
-                    outliers_doppler = df['doppler_frequency'].abs() > 1000
-                    print(f"Outliers in doppler_frequency (>1000 Hz) in {fname}: {outliers_doppler.sum()}")
-                    df.loc[outliers_doppler, 'doppler_frequency'] = np.nan
+                #if 'doppler_frequency' in df.columns:
+                #    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
+                #    outliers_doppler = df['doppler_frequency'].abs() > 1000
+                #    print(f"Outliers in doppler_frequency (>1000 Hz) in {fname}: {outliers_doppler.sum()}")
+                #    df.loc[outliers_doppler, 'doppler_frequency'] = np.nan
                 # Filter rssi outliers
                 if 'rssi' in df.columns:
                     print(f"RSSI range in {fname}: {df['rssi'].min()} to {df['rssi'].max()}")
@@ -169,14 +170,14 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                 pivoted = df.pivot_table(
                     index='timestamp',
                     columns='antenna',
-                    values=['rssi', 'phase_angle', 'doppler_frequency'],
+                    values=['rssi', 'phase_angle'], #, 'doppler_frequency'],
                     aggfunc='mean'
                 )
                 pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
                 pivoted = pivoted.reset_index()
                 # Fill NaNs with mean for this file
                 for col in pivoted.columns:
-                    if col.startswith(('rssi_', 'phase_angle_', 'doppler_frequency_')):
+                    if col.startswith(('rssi_', 'phase_angle_')): #, 'doppler_frequency_')):
                         pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
                 # Check for remaining NaNs
                 nan_counts = pivoted.isna().sum()
@@ -222,7 +223,7 @@ def generate_synthetic_static_data(n_points_per_quadrant=100):
             for ant in range(1, 5):
                 row[f'rssi_{ant}'] = np.random.uniform(-80, -40)
                 row[f'phase_angle_{ant}'] = np.random.uniform(0, 4096)
-                row[f'doppler_frequency_{ant}'] = 0  # Static data
+                #row[f'doppler_frequency_{ant}'] = 0  # Static data
             data.append(row)
     
     return pd.DataFrame(data)
@@ -268,7 +269,7 @@ def main():
     print(data['quadrant'].value_counts())
     
     # Features and target
-    features = [f'rssi_{i}' for i in range(1, 5)] + [f'phase_angle_{i}' for i in range(1, 5)] + [f'doppler_frequency_{i}' for i in range(1, 5)] + ['rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff']
+    features = [f'rssi_{i}' for i in range(1, 5)] + [f'phase_angle_{i}' for i in range(1, 5)] + ['rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff'] # + [f'doppler_frequency_{i}' for i in range(1, 5)]
     target = 'quadrant'
     
     # Verify no NaNs before splitting
@@ -380,7 +381,7 @@ def main():
     antenna_positions = {
         'rssi_1': 'A1=[0,0]', 'rssi_2': 'A2=[0,15]', 'rssi_3': 'A3=[15,15]', 'rssi_4': 'A4=[15,0]',
         'phase_angle_1': 'A1=[0,0]', 'phase_angle_2': 'A2=[0,15]', 'phase_angle_3': 'A3=[15,15]', 'phase_angle_4': 'A4=[15,0]',
-        'doppler_frequency_1': 'A1=[0,0]', 'doppler_frequency_2': 'A2=[0,15]', 'doppler_frequency_3': 'A3=[15,15]', 'doppler_frequency_4': 'A4=[15,0]',
+        #'doppler_frequency_1': 'A1=[0,0]', 'doppler_frequency_2': 'A2=[0,15]', 'doppler_frequency_3': 'A3=[15,15]', 'doppler_frequency_4': 'A4=[15,0]',
         'rssi_1_2_diff': 'A1-A2', 'rssi_3_4_diff': 'A3-A4', 'phase_angle_1_2_diff': 'A1-A2', 'phase_angle_3_4_diff': 'A3-A4'
     }
     feature_imp_df = pd.DataFrame({

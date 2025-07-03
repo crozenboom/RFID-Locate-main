@@ -4,19 +4,15 @@
 # - Importance: The relative importance score (higher means more contribution to quadrant prediction).
 # - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or difference pair (e.g., A1-A2).
 Feature,Importance,Antenna_Position
-rssi_1,0.1260307179766448,"A1=[0,0]"
-rssi_2,0.1194916291749383,"A2=[0,15]"
-rssi_4,0.11678715083654506,"A4=[15,0]"
-rssi_1_2_diff,0.10316684946063229,A1-A2
-rssi_3,0.10253935683842491,"A3=[15,15]"
-rssi_3_4_diff,0.10197812811839363,A3-A4
-phase_angle_2,0.0584947907627368,"A2=[0,15]"
-phase_angle_3,0.05148009188992257,"A3=[15,15]"
-phase_angle_4,0.049036082808251044,"A4=[15,0]"
-phase_angle_1,0.04521965358421249,"A1=[0,0]"
-phase_angle_1_2_diff,0.028245126289628827,A1-A2
-phase_angle_3_4_diff,0.02812030973674952,A3-A4
-doppler_frequency_2,0.025705361450751675,"A2=[0,15]"
-doppler_frequency_1,0.015163609830485512,"A1=[0,0]"
-doppler_frequency_4,0.014409238352521279,"A4=[15,0]"
-doppler_frequency_3,0.0141319028891613,"A3=[15,15]"
+rssi_1,0.14165601502861808,"A1=[0,0]"
+rssi_2,0.12705157514309098,"A2=[0,15]"
+rssi_4,0.1253570887022454,"A4=[15,0]"
+rssi_3,0.11086295918164316,"A3=[15,15]"
+rssi_1_2_diff,0.10789054007651351,A1-A2
+rssi_3_4_diff,0.10137668178832733,A3-A4
+phase_angle_2,0.06453626243334794,"A2=[0,15]"
+phase_angle_4,0.056640737058946795,"A4=[15,0]"
+phase_angle_3,0.05447290821612661,"A3=[15,15]"
+phase_angle_1,0.046220060988490456,"A1=[0,0]"
+phase_angle_1_2_diff,0.033426850672124635,A1-A2
+phase_angle_3_4_diff,0.030508320710525293,A3-A4
