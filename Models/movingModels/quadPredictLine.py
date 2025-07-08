@@ -1,4 +1,3 @@
-# 89% VERSION
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split, GridSearchCV
@@ -40,18 +39,14 @@ def parse_test8_coordinates(filename):
         print(f"Warning: Invalid filename format for {filename}, expecting (x,y).csv.")
         return None, None
 
-# Interpolate circular path coordinates for dynamic data
-def interpolate_circle_path(timestamps, center_x, center_y, radius, direction, num_points=500):
-    """Interpolate x, y coordinates for circular paths based on timestamps."""
+# Interpolate linear path coordinates for dynamic data
+def interpolate_line_path(timestamps, start_x, start_y, end_x, end_y, num_points=500):
+    """Interpolate x, y coordinates for linear paths based on timestamps."""
     t = np.linspace(0, 1, num_points)
     timestamps = np.array(timestamps)
     t_normalized = (timestamps - timestamps.min()) / (timestamps.max() - timestamps.min())
-    if direction == 'clockwise':
-        angles = 2 * np.pi * (1 - t_normalized)
-    else:
-        angles = 2 * np.pi * t_normalized
-    x = center_x + radius * np.cos(angles)
-    y = center_y + radius * np.sin(angles)
+    x = start_x + (end_x - start_x) * t_normalized
+    y = start_y + (end_y - start_y) * t_normalized
     return x, y
 
 # Load and preprocess data
@@ -69,10 +64,10 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
             try:
                 df = pd.read_csv(file_path)
                 # Log and clean doppler_frequency
-                #if 'doppler_frequency' in df.columns:
-                #    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
-                #    print(f"Setting all doppler_frequency to 0 in static file {fname}.")
-                #    df['doppler_frequency'] = 0  # Static tags should have zero Doppler
+                if 'doppler_frequency' in df.columns:
+                    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
+                    print(f"Setting all doppler_frequency to 0 in static file {fname}.")
+                    df['doppler_frequency'] = 0  # Static tags should have zero Doppler
                 # Filter rssi outliers
                 if 'rssi' in df.columns:
                     print(f"RSSI range in {fname}: {df['rssi'].min()} to {df['rssi'].max()}")
@@ -91,14 +86,14 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                 pivoted = df.pivot_table(
                     index='timestamp',
                     columns='antenna',
-                    values=['rssi', 'phase_angle'], #, 'doppler_frequency'],
+                    values=['rssi', 'phase_angle', 'doppler_frequency'],
                     aggfunc='mean'
                 )
                 pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
                 pivoted = pivoted.reset_index()
                 # Fill NaNs with mean for this file
                 for col in pivoted.columns:
-                    if col.startswith(('rssi_', 'phase_angle_')): #, 'doppler_frequency_')):
+                    if col.startswith(('rssi_', 'phase_angle_', 'doppler_frequency_')):
                         pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
                 # Check for remaining NaNs
                 nan_counts = pivoted.isna().sum()
@@ -115,49 +110,41 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                 print(f"Error processing {file_path}: {str(e)}")
                 continue
     else:
-        # Handle dynamic data (CircleTests with metadata)
+        # Handle dynamic data (MoveTest2 with metadata)
         try:
             print(f"Looking for metadata file at: {os.path.abspath(file_or_dir)}")
             metadata = pd.read_csv(file_or_dir)
             metadata.columns = metadata.columns.str.strip()
             print(f"Metadata columns: {list(metadata.columns)}")
-            required_dynamic_cols = ['center_x_true', 'center_y_true', 'radius_true', 'direction']
+            required_dynamic_cols = ['raw_CSV_filename', 'path_#', 'start_x_true', 'start_y_true', 'end_x_true', 'end_y_true']
             if not all(col in metadata.columns for col in required_dynamic_cols):
                 print(f"Error: Missing required columns in metadata. Required: {required_dynamic_cols}, Found: {list(metadata.columns)}")
                 return None
+            # Filter for MoveTest2 (path_# 3 and 4)
+            metadata = metadata[metadata['raw_CSV_filename'].str.startswith('movetest2-')]
         except FileNotFoundError:
             print(f"Error: Metadata file '{file_or_dir}' not found.")
             return None
         
-        print(f"Available subfolders in {data_dir}:")
-        print([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))])
+        print(f"Available files in {data_dir}:")
+        print([f for f in os.listdir(data_dir) if f.endswith('.csv')])
         
         for _, row in metadata.iterrows():
-            test_num = row['raw_CSV_filename'].split('-')[0].replace('circletest', '')
-            subfolder = f'CircleTest{test_num}'
-            possible_filenames = [
-                f'CircleTest{test_num}-{row["raw_CSV_filename"].split("-")[1]}.csv',
-                f'circletest{test_num}-{row["raw_CSV_filename"].split("-")[1]}.csv'
-            ]
-            file_path = None
-            for fname in possible_filenames:
-                temp_path = os.path.join(data_dir, subfolder, fname)
-                if os.path.exists(temp_path):
-                    file_path = temp_path
-                    break
-            if not file_path:
-                print(f"Warning: File not found for {row['raw_CSV_filename']} in {os.path.join(data_dir, subfolder)}. Tried: {possible_filenames}")
+            fname = row['raw_CSV_filename'] + '.csv'
+            file_path = os.path.join(data_dir, fname)
+            if not os.path.exists(file_path):
+                print(f"Warning: File not found for {row['raw_CSV_filename']} at {file_path}")
                 continue
             
             print(f"Processing file: {file_path}")
             try:
                 df = pd.read_csv(file_path)
                 # Filter doppler_frequency outliers
-                #if 'doppler_frequency' in df.columns:
-                #    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
-                #    outliers_doppler = df['doppler_frequency'].abs() > 1000
-                #    print(f"Outliers in doppler_frequency (>1000 Hz) in {fname}: {outliers_doppler.sum()}")
-                #    df.loc[outliers_doppler, 'doppler_frequency'] = np.nan
+                if 'doppler_frequency' in df.columns:
+                    print(f"Doppler frequency range in {fname}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
+                    outliers_doppler = df['doppler_frequency'].abs() > 1000
+                    print(f"Outliers in doppler_frequency (>1000 Hz) in {fname}: {outliers_doppler.sum()}")
+                    df.loc[outliers_doppler, 'doppler_frequency'] = np.nan
                 # Filter rssi outliers
                 if 'rssi' in df.columns:
                     print(f"RSSI range in {fname}: {df['rssi'].min()} to {df['rssi'].max()}")
@@ -170,14 +157,14 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                 pivoted = df.pivot_table(
                     index='timestamp',
                     columns='antenna',
-                    values=['rssi', 'phase_angle'], #, 'doppler_frequency'],
+                    values=['rssi', 'phase_angle', 'doppler_frequency'],
                     aggfunc='mean'
                 )
                 pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
                 pivoted = pivoted.reset_index()
                 # Fill NaNs with mean for this file
                 for col in pivoted.columns:
-                    if col.startswith(('rssi_', 'phase_angle_')): #, 'doppler_frequency_')):
+                    if col.startswith(('rssi_', 'phase_angle_', 'doppler_frequency_')):
                         pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
                 # Check for remaining NaNs
                 nan_counts = pivoted.isna().sum()
@@ -185,7 +172,7 @@ def load_and_preprocess_data(file_or_dir, data_dir, is_static=False):
                 if pivoted.isna().any().any():
                     print(f"Warning: Remaining NaNs in {fname} after imputation. Dropping rows.")
                     pivoted = pivoted.dropna()
-                x, y = interpolate_circle_path(pivoted['timestamp'], row['center_x_true'], row['center_y_true'], row['radius_true'], row['direction'], num_points=500)
+                x, y = interpolate_line_path(pivoted['timestamp'], row['start_x_true'], row['start_y_true'], row['end_x_true'], row['end_y_true'], num_points=500)
                 pivoted['x_true'] = x
                 pivoted['y_true'] = y
                 pivoted['quadrant'] = pivoted.apply(lambda r: coordinates_to_quadrant(r['x_true'], r['y_true']), axis=1)
@@ -223,7 +210,7 @@ def generate_synthetic_static_data(n_points_per_quadrant=100):
             for ant in range(1, 5):
                 row[f'rssi_{ant}'] = np.random.uniform(-80, -40)
                 row[f'phase_angle_{ant}'] = np.random.uniform(0, 4096)
-                #row[f'doppler_frequency_{ant}'] = 0  # Static data
+                row[f'doppler_frequency_{ant}'] = 0  # Static data
             data.append(row)
     
     return pd.DataFrame(data)
@@ -233,8 +220,8 @@ def main():
     """Main function to load data, train model, and generate outputs."""
     start_time = time()
     # File paths
-    metadata_file = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/CircleTests/CircleMetadata.csv'
-    data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/CircleTests'
+    metadata_file = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/LineTests/LineMetadata.csv'
+    data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/MovementTesting/LineTests/MoveTest2'
     static_data_dir = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Test8'
     
     # Load dynamic data
@@ -269,7 +256,7 @@ def main():
     print(data['quadrant'].value_counts())
     
     # Features and target
-    features = [f'rssi_{i}' for i in range(1, 5)] + [f'phase_angle_{i}' for i in range(1, 5)] + ['rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff'] # + [f'doppler_frequency_{i}' for i in range(1, 5)]
+    features = [f'rssi_{i}' for i in range(1, 5)] + [f'phase_angle_{i}' for i in range(1, 5)] + [f'doppler_frequency_{i}' for i in range(1, 5)] + ['rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff']
     target = 'quadrant'
     
     # Verify no NaNs before splitting
@@ -301,9 +288,10 @@ def main():
     rfc = RandomForestClassifier(random_state=42, class_weight='balanced')
     param_grid = {
         'n_estimators': [200, 300],
-        'max_depth': [20, 30],
-        'min_samples_split': [2],
-        'min_samples_leaf': [1]
+        'max_depth': [15, 20],
+        'min_samples_split': [5, 10],
+        'min_samples_leaf': [1, 2],
+        'max_features': ['sqrt', 'log2']
     }
     grid_search = GridSearchCV(rfc, param_grid, cv=5, scoring='accuracy', n_jobs=-1, verbose=2)
     grid_search.fit(X_train_scaled, y_train_balanced)
@@ -370,8 +358,8 @@ def main():
             "# This file contains quadrant accuracies and per-file accuracies for dynamic and static data.\n"
             "# - Quadrant: Q1 (x<7.5, y>=7.5), Q2 (x>=7.5, y>=7.5), Q3 (x<7.5, y<7.5), Q4 (x>=7.5, y<7.5).\n"
             "# - Accuracy: Prediction accuracy for each quadrant or file (0 to 1).\n"
-            "# - Dataset: 'dynamic' (CircleTests) or 'static' (Test8).\n"
-            "# - Filename: Name of the data file (e.g., CircleTest1-1.csv, (12,3).csv).\n"
+            "# - Dataset: 'dynamic' (MoveTest2) or 'static' (Test8).\n"
+            "# - Filename: Name of the data file (e.g., MoveTest2-1.csv, (12,3).csv).\n"
         )
     results_df.to_csv(results_file, mode='a', index=False)
     print(f"Results saved to: {os.path.abspath(results_file)}")
@@ -381,7 +369,7 @@ def main():
     antenna_positions = {
         'rssi_1': 'A1=[0,0]', 'rssi_2': 'A2=[0,15]', 'rssi_3': 'A3=[15,15]', 'rssi_4': 'A4=[15,0]',
         'phase_angle_1': 'A1=[0,0]', 'phase_angle_2': 'A2=[0,15]', 'phase_angle_3': 'A3=[15,15]', 'phase_angle_4': 'A4=[15,0]',
-        #'doppler_frequency_1': 'A1=[0,0]', 'doppler_frequency_2': 'A2=[0,15]', 'doppler_frequency_3': 'A3=[15,15]', 'doppler_frequency_4': 'A4=[15,0]',
+        'doppler_frequency_1': 'A1=[0,0]', 'doppler_frequency_2': 'A2=[0,15]', 'doppler_frequency_3': 'A3=[15,15]', 'doppler_frequency_4': 'A4=[15,0]',
         'rssi_1_2_diff': 'A1-A2', 'rssi_3_4_diff': 'A3-A4', 'phase_angle_1_2_diff': 'A1-A2', 'phase_angle_3_4_diff': 'A3-A4'
     }
     feature_imp_df = pd.DataFrame({
