@@ -1,0 +1,10 @@
+# Confusion Matrix
+# This file shows the confusion matrix for quadrant predictions.
+# - Rows: Actual quadrants (Q1, Q2, Q3, Q4).
+# - Columns: Predicted quadrants (Q1, Q2, Q3, Q4).
+# - Values: Number of samples for each actual-predicted pair.
+,Q1,Q2,Q3,Q4
+Q1,1871,66,83,110
+Q2,65,1342,140,50
+Q3,57,140,1505,58
+Q4,128,55,57,1608
