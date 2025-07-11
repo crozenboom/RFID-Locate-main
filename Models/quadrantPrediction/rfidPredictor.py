@@ -34,7 +34,7 @@ except FileNotFoundError as e:
 
 # API key security
 api_key_header = APIKeyHeader(name="X-API-Key")
-API_KEY = "your_secure_api_key"  # Replace with your actual key
+API_KEY = "cachengo"  # Replace with your actual key
 
 # Pydantic models
 class RFIDSensorData(BaseModel):
@@ -129,10 +129,72 @@ def process_tag_data(row):
     return data, prediction
 
 # FastAPI endpoints
-@fastapi_app.get("/health", response_model=dict)
-async def health_check():
-    return {"status": "healthy", "links": {"self": "/health", "predictions": "/predictions", "dashboard": "/dashboard", "rfid-data": "/rfid-data"}}
+@fastapi_app.get("/predictions", response_model=List[PredictionResponse])
+async def get_latest_predictions(api_key: str = Depends(api_key_header)):
+    try:
+        tags = []
+        try:
+            while True:
+                tags.append(tag_queue.get_nowait())
+        except queue.Empty:
+            pass
+        if not tags:
+            logging.info("No new tag data available. Waiting for RFID reader POST to /rfid-data.")
+            raise HTTPException(status_code=404, detail="No new tag data. Ensure RFID reader is sending POST requests to /rfid-data.")
 
+        df = pd.DataFrame(tags)
+        pivoted = df.pivot_table(
+            index=['LastSeen', 'EPC'],
+            columns='AntennaID',
+            values=['ImpinjPeakRSSI', 'Phase Angle', 'Doppler Frequency'],
+            aggfunc='first'  # Use 'first' instead of 'mean' to avoid averaging
+        ).reset_index()
+        pivoted.columns = ['LastSeen', 'EPC'] + [
+            f'{col[0].lower().replace(" ", "_")}_{col[1]}' if col[1] else col[0]
+            for col in pivoted.columns[2:]
+        ]
+
+        # Fill missing values explicitly
+        for i in range(1, 5):
+            pivoted[f'impinjpeakrssi_{i}'] = pivoted.get(f'impinjpeakrssi_{i}', -80.0)
+            pivoted[f'phase_angle_{i}'] = pivoted.get(f'phase_angle_{i}', 0.0)
+            pivoted[f'doppler_frequency_{i}'] = pivoted.get(f'doppler_frequency_{i}', 0.0)
+
+        outputs = []
+        for _, row in pivoted.iterrows():
+            data, prediction = process_tag_data(row)
+            output = {
+                'epc': row['EPC'],
+                'rssi_1': data['rssi_1'], 'rssi_2': data['rssi_2'], 
+                'rssi_3': data['rssi_3'], 'rssi_4': data['rssi_4'],
+                'phase_angle_1': data['phase_angle_1'], 'phase_angle_2': data['phase_angle_2'],
+                'phase_angle_3': data['phase_angle_3'], 'phase_angle_4': data['phase_angle_4'],
+                'doppler_frequency_1': data['doppler_frequency_1'], 
+                'doppler_frequency_2': data['doppler_frequency_2'],
+                'doppler_frequency_3': data['doppler_frequency_3'], 
+                'doppler_frequency_4': data['doppler_frequency_4'],
+                'quadrant': prediction,
+                'timestamp': row['LastSeen'],
+                'links': {
+                    'self': f"/predictions/{row['EPC']}",
+                    'all_predictions': '/predictions',
+                    'dashboard': '/dashboard'
+                }
+            }
+            outputs.append(output)
+            logging.info(f"Read: {output}")
+            print(f"EPC: {output['epc']}, RSSI: {output['rssi_1']:.1f}, {output['rssi_2']:.1f}, "
+                  f"{output['rssi_3']:.1f}, {output['rssi_4']:.1f}, "
+                  f"Phase: {output['phase_angle_1']:.1f}, {output['phase_angle_2']:.1f}, "
+                  f"{output['phase_angle_3']:.1f}, {output['phase_angle_4']:.1f}, "
+                  f"Doppler: {output['doppler_frequency_1']:.1f}, {output['doppler_frequency_2']:.1f}, "
+                  f"{output['doppler_frequency_3']:.1f}, {output['doppler_frequency_4']:.1f}, "
+                  f"Quadrant: {output['quadrant']}")
+        return outputs
+    except Exception as e:
+        logging.error(f"Prediction error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+    
 @fastapi_app.get("/predictions", response_model=List[PredictionResponse])
 async def get_latest_predictions(api_key: str = Depends(api_key_header)):
     try:
