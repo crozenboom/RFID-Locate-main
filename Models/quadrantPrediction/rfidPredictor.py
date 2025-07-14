@@ -9,6 +9,8 @@ import queue
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+import aiohttp
+import asyncio
 import requests
 from dash import Dash, html, dcc
 from dash.dependencies import Output, Input
@@ -36,6 +38,11 @@ except FileNotFoundError as e:
 api_key_header = APIKeyHeader(name="X-API-Key")
 API_KEY = "cachengo"  # Replace with your actual key
 
+# Configuration for RFID reader and output endpoint
+RFID_READER_ENDPOINT = "http://<your-rfid-reader-ip>:8080/rfid-data"  # Replace with actual RFID reader endpoint
+OUTPUT_ENDPOINT = "http://<your-output-endpoint>"  # Replace with actual endpoint to send predictions
+POLL_INTERVAL = 0.5  # Seconds between polls to RFID reader
+
 # Pydantic models
 class RFIDSensorData(BaseModel):
     EPC: str
@@ -44,22 +51,6 @@ class RFIDSensorData(BaseModel):
     PhaseAngle: float
     DopplerFrequency: float
     Timestamp: str
-
-class TagData(BaseModel):
-    epc: str
-    rssi_1: float
-    rssi_2: float
-    rssi_3: float
-    rssi_4: float
-    phase_angle_1: float
-    phase_angle_2: float
-    phase_angle_3: float
-    phase_angle_4: float
-    doppler_frequency_1: float
-    doppler_frequency_2: float
-    doppler_frequency_3: float
-    doppler_frequency_4: float
-    timestamp: Optional[float] = None
 
 class PredictionResponse(BaseModel):
     epc: str
@@ -81,26 +72,6 @@ class PredictionResponse(BaseModel):
 
 # Queue for tag data
 tag_queue = queue.Queue()
-
-# FastAPI endpoint to receive RFID data from Speedway Connect
-@fastapi_app.post("/rfid-data")
-async def receive_rfid_data(tags: List[RFIDSensorData]):
-    try:
-        for tag in tags:
-            tag_data = {
-                'AntennaID': tag.AntennaID,
-                'EPC': tag.EPC,
-                'LastSeen': parse_date(tag.Timestamp).timestamp() * 1000,  # Convert to milliseconds
-                'ImpinjPeakRSSI': tag.PeakRSSI,
-                'Phase Angle': tag.PhaseAngle,
-                'Doppler Frequency': tag.DopplerFrequency
-            }
-            tag_queue.put(tag_data)
-            logging.info(f"Received tag: {tag_data}")
-        return {"status": "success", "message": f"Received {len(tags)} tags"}
-    except Exception as e:
-        logging.error(f"Error processing RFID data: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing RFID data: {str(e)}")
 
 # Process tag data for prediction
 def process_tag_data(row):
@@ -128,7 +99,122 @@ def process_tag_data(row):
     prediction = model.predict(X_scaled)[0]
     return data, prediction
 
-# FastAPI endpoints
+# Async function to poll RFID reader
+async def poll_rfid_reader():
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.get(RFID_READER_ENDPOINT, headers={'X-API-Key': API_KEY}) as response:
+                    if response.status == 200:
+                        tags = await response.json()
+                        for tag in tags:
+                            tag_data = {
+                                'AntennaID': tag['AntennaID'],
+                                'EPC': tag['EPC'],
+                                'LastSeen': parse_date(tag['Timestamp']).timestamp() * 1000,
+                                'ImpinjPeakRSSI': tag['PeakRSSI'],
+                                'Phase Angle': tag['PhaseAngle'],
+                                'Doppler Frequency': tag['DopplerFrequency']
+                            }
+                            tag_queue.put(tag_data)
+                            logging.info(f"Received tag: {tag_data}")
+                    else:
+                        logging.warning(f"RFID reader request failed: {response.status}")
+            except Exception as e:
+                logging.error(f"Error polling RFID reader: {str(e)}")
+            await asyncio.sleep(POLL_INTERVAL)
+
+# Async function to send predictions
+async def send_predictions():
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                tags = []
+                try:
+                    while True:
+                        tags.append(tag_queue.get_nowait())
+                except queue.Empty:
+                    pass
+
+                if tags:
+                    df = pd.DataFrame(tags)
+                    pivoted = df.pivot_table(
+                        index=['LastSeen', 'EPC'],
+                        columns='AntennaID',
+                        values=['ImpinjPeakRSSI', 'Phase Angle', 'Doppler Frequency'],
+                        aggfunc='first'
+                    ).reset_index()
+                    pivoted.columns = ['LastSeen', 'EPC'] + [
+                        f'{col[0].lower().replace(" ", "_")}_{col[1]}' if col[1] else col[0]
+                        for col in pivoted.columns[2:]
+                    ]
+
+                    for i in range(1, 5):
+                        pivoted[f'impinjpeakrssi_{i}'] = pivoted.get(f'impinjpeakrssi_{i}', pd.Series([-80.0] * len(pivoted)))
+                        pivoted[f'phase_angle_{i}'] = pivoted.get(f'phase_angle_{i}', pd.Series([0.0] * len(pivoted)))
+                        pivoted[f'doppler_frequency_{i}'] = pivoted.get(f'doppler_frequency_{i}', pd.Series([0.0] * len(pivoted)))
+
+                    for _, row in pivoted.iterrows():
+                        data, prediction = process_tag_data(row)
+                        output = {
+                            'epc': row['EPC'],
+                            'rssi_1': float(data['rssi_1']),
+                            'rssi_2': float(data['rssi_2']),
+                            'rssi_3': float(data['rssi_3']),
+                            'rssi_4': float(data['rssi_4']),
+                            'phase_angle_1': float(data['phase_angle_1']),
+                            'phase_angle_2': float(data['phase_angle_2']),
+                            'phase_angle_3': float(data['phase_angle_3']),
+                            'phase_angle_4': float(data['phase_angle_4']),
+                            'doppler_frequency_1': float(data['doppler_frequency_1']),
+                            'doppler_frequency_2': float(data['doppler_frequency_2']),
+                            'doppler_frequency_3': float(data['doppler_frequency_3']),
+                            'doppler_frequency_4': float(data['doppler_frequency_4']),
+                            'quadrant': str(prediction),
+                            'timestamp': float(row['LastSeen']),
+                            'links': {
+                                'self': f"/predictions/{row['EPC']}",
+                                'all_predictions': '/predictions',
+                                'dashboard': '/dashboard'
+                            }
+                        }
+                        logging.info(f"Prediction: {output}")
+                        print(f"EPC: {output['epc']}, RSSI: {output['rssi_1']:.1f}, {output['rssi_2']:.1f}, "
+                              f"{output['rssi_3']:.1f}, {output['rssi_4']:.1f}, "
+                              f"Phase: {output['phase_angle_1']:.1f}, {output['phase_angle_2']:.1f}, "
+                              f"{output['phase_angle_3']:.1f}, {output['phase_angle_4']:.1f}, "
+                              f"Doppler: {output['doppler_frequency_1']:.1f}, {output['doppler_frequency_2']:.1f}, "
+                              f"{output['doppler_frequency_3']:.1f}, {output['doppler_frequency_4']:.1f}, "
+                              f"Quadrant: {output['quadrant']}")
+
+                        async with session.post(OUTPUT_ENDPOINT, json=output) as resp:
+                            if resp.status != 200:
+                                logging.error(f"Failed to send prediction for EPC {output['epc']}: {resp.status}")
+            except Exception as e:
+                logging.error(f"Error processing predictions: {str(e)}")
+            await asyncio.sleep(0.1)
+
+# FastAPI endpoint to receive RFID data (backup)
+@fastapi_app.post("/rfid-data")
+async def receive_rfid_data(tags: List[RFIDSensorData]):
+    try:
+        for tag in tags:
+            tag_data = {
+                'AntennaID': tag.AntennaID,
+                'EPC': tag.EPC,
+                'LastSeen': parse_date(tag.Timestamp).timestamp() * 1000,
+                'ImpinjPeakRSSI': tag.PeakRSSI,
+                'Phase Angle': tag.PhaseAngle,
+                'Doppler Frequency': tag.DopplerFrequency
+            }
+            tag_queue.put(tag_data)
+            logging.info(f"Received tag: {tag_data}")
+        return {"status": "success", "message": f"Received {len(tags)} tags"}
+    except Exception as e:
+        logging.error(f"Error processing RFID data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing RFID data: {str(e)}")
+
+# FastAPI endpoint to get predictions
 @fastapi_app.get("/predictions", response_model=List[PredictionResponse])
 async def get_latest_predictions(api_key: str = Depends(api_key_header)):
     try:
@@ -139,42 +225,45 @@ async def get_latest_predictions(api_key: str = Depends(api_key_header)):
         except queue.Empty:
             pass
         if not tags:
-            logging.info("No new tag data available. Waiting for RFID reader POST to /rfid-data.")
-            raise HTTPException(status_code=404, detail="No new tag data. Ensure RFID reader is sending POST requests to /rfid-data.")
+            logging.info("No new tag data available.")
+            raise HTTPException(status_code=404, detail="No new tag data available.")
 
         df = pd.DataFrame(tags)
         pivoted = df.pivot_table(
             index=['LastSeen', 'EPC'],
             columns='AntennaID',
             values=['ImpinjPeakRSSI', 'Phase Angle', 'Doppler Frequency'],
-            aggfunc='first'  # Use 'first' instead of 'mean' to avoid averaging
+            aggfunc='first'
         ).reset_index()
         pivoted.columns = ['LastSeen', 'EPC'] + [
             f'{col[0].lower().replace(" ", "_")}_{col[1]}' if col[1] else col[0]
             for col in pivoted.columns[2:]
         ]
 
-        # Fill missing values explicitly
         for i in range(1, 5):
-            pivoted[f'impinjpeakrssi_{i}'] = pivoted.get(f'impinjpeakrssi_{i}', -80.0)
-            pivoted[f'phase_angle_{i}'] = pivoted.get(f'phase_angle_{i}', 0.0)
-            pivoted[f'doppler_frequency_{i}'] = pivoted.get(f'doppler_frequency_{i}', 0.0)
+            pivoted[f'impinjpeakrssi_{i}'] = pivoted.get(f'impinjpeakrssi_{i}', pd.Series([-80.0] * len(pivoted)))
+            pivoted[f'phase_angle_{i}'] = pivoted.get(f'phase_angle_{i}', pd.Series([0.0] * len(pivoted)))
+            pivoted[f'doppler_frequency_{i}'] = pivoted.get(f'doppler_frequency_{i}', pd.Series([0.0] * len(pivoted)))
 
         outputs = []
         for _, row in pivoted.iterrows():
             data, prediction = process_tag_data(row)
             output = {
                 'epc': row['EPC'],
-                'rssi_1': data['rssi_1'], 'rssi_2': data['rssi_2'], 
-                'rssi_3': data['rssi_3'], 'rssi_4': data['rssi_4'],
-                'phase_angle_1': data['phase_angle_1'], 'phase_angle_2': data['phase_angle_2'],
-                'phase_angle_3': data['phase_angle_3'], 'phase_angle_4': data['phase_angle_4'],
-                'doppler_frequency_1': data['doppler_frequency_1'], 
-                'doppler_frequency_2': data['doppler_frequency_2'],
-                'doppler_frequency_3': data['doppler_frequency_3'], 
-                'doppler_frequency_4': data['doppler_frequency_4'],
-                'quadrant': prediction,
-                'timestamp': row['LastSeen'],
+                'rssi_1': float(data['rssi_1']),
+                'rssi_2': float(data['rssi_2']),
+                'rssi_3': float(data['rssi_3']),
+                'rssi_4': float(data['rssi_4']),
+                'phase_angle_1': float(data['phase_angle_1']),
+                'phase_angle_2': float(data['phase_angle_2']),
+                'phase_angle_3': float(data['phase_angle_3']),
+                'phase_angle_4': float(data['phase_angle_4']),
+                'doppler_frequency_1': float(data['doppler_frequency_1']),
+                'doppler_frequency_2': float(data['doppler_frequency_2']),
+                'doppler_frequency_3': float(data['doppler_frequency_3']),
+                'doppler_frequency_4': float(data['doppler_frequency_4']),
+                'quadrant': str(prediction),
+                'timestamp': float(row['LastSeen']),
                 'links': {
                     'self': f"/predictions/{row['EPC']}",
                     'all_predictions': '/predictions',
@@ -191,113 +280,6 @@ async def get_latest_predictions(api_key: str = Depends(api_key_header)):
                   f"{output['doppler_frequency_3']:.1f}, {output['doppler_frequency_4']:.1f}, "
                   f"Quadrant: {output['quadrant']}")
         return outputs
-    except Exception as e:
-        logging.error(f"Prediction error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
-    
-@fastapi_app.get("/predictions", response_model=List[PredictionResponse])
-async def get_latest_predictions(api_key: str = Depends(api_key_header)):
-    try:
-        tags = []
-        try:
-            while True:
-                tags.append(tag_queue.get_nowait())
-        except queue.Empty:
-            pass
-        if not tags:
-            logging.info("No new tag data available. Waiting for RFID reader POST to /rfid-data.")
-            raise HTTPException(status_code=404, detail="No new tag data. Ensure RFID reader is sending POST requests to /rfid-data.")
-
-        df = pd.DataFrame(tags)
-        pivoted = df.pivot_table(
-            index=['LastSeen', 'EPC'],
-            columns='AntennaID',
-            values=['ImpinjPeakRSSI', 'Phase Angle', 'Doppler Frequency'],
-            aggfunc='mean'
-        ).reset_index()
-        pivoted.columns = ['LastSeen', 'EPC'] + [f'{col[0].lower().replace(" ", "_")}_{col[1]}' for col in pivoted.columns[2:]]
-
-        outputs = []
-        for _, row in pivoted.iterrows():
-            data, prediction = process_tag_data(row)
-            output = {
-                'epc': row['EPC'],
-                'rssi_1': data['rssi_1'], 'rssi_2': data['rssi_2'], 
-                'rssi_3': data['rssi_3'], 'rssi_4': data['rssi_4'],
-                'phase_angle_1': data['phase_angle_1'], 'phase_angle_2': data['phase_angle_2'],
-                'phase_angle_3': data['phase_angle_3'], 'phase_angle_4': data['phase_angle_4'],
-                'doppler_frequency_1': data['doppler_frequency_1'], 
-                'doppler_frequency_2': data['doppler_frequency_2'],
-                'doppler_frequency_3': data['doppler_frequency_3'], 
-                'doppler_frequency_4': data['doppler_frequency_4'],
-                'quadrant': prediction,
-                'timestamp': row['LastSeen'],
-                'links': {
-                    'self': f"/predictions/{row['EPC']}",
-                    'all_predictions': '/predictions',
-                    'dashboard': '/dashboard'
-                }
-            }
-            outputs.append(output)
-            logging.info(f"Read: {output}")
-            print(f"EPC: {output['epc']}, RSSI: {output['rssi_1']:.1f}, {output['rssi_2']:.1f}, "
-                  f"{output['rssi_3']:.1f}, {output['rssi_4']:.1f}, "
-                  f"Phase: {output['phase_angle_1']:.1f}, {output['phase_angle_2']:.1f}, "
-                  f"{output['phase_angle_3']:.1f}, {output['phase_angle_4']:.1f}, "
-                  f"Doppler: {output['doppler_frequency_1']:.1f}, {output['doppler_frequency_2']:.1f}, "
-                  f"{output['doppler_frequency_3']:.1f}, {output['doppler_frequency_4']:.1f}, "
-                  f"Quadrant: {output['quadrant']}")
-        return outputs
-    except Exception as e:
-        logging.error(f"Prediction error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
-
-@fastapi_app.post("/predictions", response_model=PredictionResponse)
-async def create_prediction(tag_data: TagData, api_key: str = Depends(api_key_header)):
-    try:
-        data = tag_data.dict(exclude={'timestamp'})
-        df = pd.DataFrame([data])
-        df['rssi_1_2_diff'] = df['rssi_1'] - df['rssi_2']
-        df['rssi_3_4_diff'] = df['rssi_3'] - df['rssi_4']
-        df['phase_angle_1_2_diff'] = df['phase_angle_1'] - df['phase_angle_2']
-        df['phase_angle_3_4_diff'] = df['phase_angle_3'] - df['phase_angle_4']
-        features = [
-            'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4',
-            'phase_angle_1', 'phase_angle_2', 'phase_angle_3', 'phase_angle_4',
-            'doppler_frequency_1', 'doppler_frequency_2', 'doppler_frequency_3', 'doppler_frequency_4',
-            'rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff'
-        ]
-        X_scaled = scaler.transform(df[features])
-        prediction = model.predict(X_scaled)[0]
-
-        output = {
-            'epc': tag_data.epc,
-            'rssi_1': tag_data.rssi_1, 'rssi_2': tag_data.rssi_2, 
-            'rssi_3': tag_data.rssi_3, 'rssi_4': tag_data.rssi_4,
-            'phase_angle_1': tag_data.phase_angle_1, 'phase_angle_2': tag_data.phase_angle_2,
-            'phase_angle_3': tag_data.phase_angle_3, 'phase_angle_4': tag_data.phase_angle_4,
-            'doppler_frequency_1': tag_data.doppler_frequency_1, 
-            'doppler_frequency_2': tag_data.doppler_frequency_2,
-            'doppler_frequency_3': tag_data.doppler_frequency_3, 
-            'doppler_frequency_4': tag_data.doppler_frequency_4,
-            'quadrant': prediction,
-            'timestamp': tag_data.timestamp or datetime.utcnow().timestamp(),
-            'links': {
-                'self': f"/predictions/{tag_data.epc}",
-                'all_predictions': '/predictions',
-                'dashboard': '/dashboard'
-            }
-        }
-
-        logging.info(f"Read: {output}")
-        print(f"EPC: {output['epc']}, RSSI: {output['rssi_1']:.1f}, {output['rssi_2']:.1f}, "
-              f"{output['rssi_3']:.1f}, {output['rssi_4']:.1f}, "
-              f"Phase: {output['phase_angle_1']:.1f}, {output['phase_angle_2']:.1f}, "
-              f"{output['phase_angle_3']:.1f}, {output['phase_angle_4']:.1f}, "
-              f"Doppler: {output['doppler_frequency_1']:.1f}, {output['doppler_frequency_2']:.1f}, "
-              f"{output['doppler_frequency_3']:.1f}, {output['doppler_frequency_4']:.1f}, "
-              f"Quadrant: {output['quadrant']}")
-        return output
     except Exception as e:
         logging.error(f"Prediction error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
@@ -312,9 +294,9 @@ dash_app.layout = html.Div([
     html.Table(
         id='data-table',
         children=[
-            html.Tr([html.Th(col) for col in ['EPC', 'RSSI_1', 'RSSI_2', 'RSSI_3', 'RSSI_4', 
+            html.Tr([html.Th(col) for col in ['EPC', 'RSSI_1', 'RSSI_2', 'RSSI_3', 'RSSI_4',
                                               'Phase_1', 'Phase_2', 'Phase_3', 'Phase_4',
-                                              'Doppler_1', 'Doppler_2', 'Doppler_3', 'Doppler_4', 
+                                              'Doppler_1', 'Doppler_2', 'Doppler_3', 'Doppler_4',
                                               'Quadrant']]),
         ], style={'width': '100%', 'fontSize': 12}
     ),
@@ -341,18 +323,18 @@ def update_graph_and_table(n):
         recent_reads.append([
             data['epc'],
             f"{data['rssi_1']:.1f}", f"{data['rssi_2']:.1f}", f"{data['rssi_3']:.1f}", f"{data['rssi_4']:.1f}",
-            f"{data['phase_angle_1']:.1f}", f"{data['phase_angle_2']:.1f}", 
+            f"{data['phase_angle_1']:.1f}", f"{data['phase_angle_2']:.1f}",
             f"{data['phase_angle_3']:.1f}", f"{data['phase_angle_4']:.1f}",
-            f"{data['doppler_frequency_1']:.1f}", f"{data['doppler_frequency_2']:.1f}", 
+            f"{data['doppler_frequency_1']:.1f}", f"{data['doppler_frequency_2']:.1f}",
             f"{data['doppler_frequency_3']:.1f}", f"{data['doppler_frequency_4']:.1f}",
             quadrant
         ])
         recent_reads = recent_reads[-5:]
 
         table_rows = [
-            html.Tr([html.Td(col) for col in ['EPC', 'RSSI_1', 'RSSI_2', 'RSSI_3', 'RSSI_4', 
+            html.Tr([html.Td(col) for col in ['EPC', 'RSSI_1', 'RSSI_2', 'RSSI_3', 'RSSI_4',
                                               'Phase_1', 'Phase_2', 'Phase_3', 'Phase_4',
-                                              'Doppler_1', 'Doppler_2', 'Doppler_3', 'Doppler_4', 
+                                              'Doppler_1', 'Doppler_2', 'Doppler_3', 'Doppler_4',
                                               'Quadrant']]),
             *[html.Tr([html.Td(cell) for cell in row]) for row in recent_reads]
         ]
@@ -367,10 +349,10 @@ def update_graph_and_table(n):
         }, table_rows
     except Exception as e:
         print(f"Dashboard error: {str(e)}")
-        return {'data': [], 'layout': go.Layout(title='No Data (Waiting for RFID Reader POST)')}, [
-            html.Tr([html.Td(col) for col in ['EPC', 'RSSI_1', 'RSSI_2', 'RSSI_3', 'RSSI_4', 
+        return {'data': [], 'layout': go.Layout(title='No Data (Waiting for RFID Reader)')}, [
+            html.Tr([html.Td(col) for col in ['EPC', 'RSSI_1', 'RSSI_2', 'RSSI_3', 'RSSI_4',
                                               'Phase_1', 'Phase_2', 'Phase_3', 'Phase_4',
-                                              'Doppler_1', 'Doppler_2', 'Doppler_3', 'Doppler_4', 
+                                              'Doppler_1', 'Doppler_2', 'Doppler_3', 'Doppler_4',
                                               'Quadrant']])
         ]
 
@@ -388,8 +370,22 @@ def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('0.0.0.0', port)) == 0
 
+# Main function to start polling and FastAPI
+async def main():
+    asyncio.create_task(poll_rfid_reader())
+    asyncio.create_task(send_predictions())
+    threading.Thread(target=run_dash, daemon=True).start()
+    try:
+        print("Starting FastAPI server on port 8000 and Dash dashboard on port 8050...")
+        print(f"Polling RFID reader at {RFID_READER_ENDPOINT} every {POLL_INTERVAL} seconds...")
+        print(f"Sending predictions to {OUTPUT_ENDPOINT}")
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
+    except Exception as e:
+        logging.error(f"FastAPI server error: {str(e)}")
+        print(f"Error starting FastAPI server: {str(e)}")
+        sys.exit(1)
+
 if __name__ == '__main__':
-    # Check ports
     if is_port_in_use(8000):
         print("Error: Port 8000 is already in use. Please free it or use a different port.")
         print("To find and kill the process, run: `lsof -i :8000` and `kill -9 <PID>`")
@@ -399,14 +395,4 @@ if __name__ == '__main__':
         print("To find and kill the process, run: `lsof -i :8050` and `kill -9 <PID>`")
         sys.exit(1)
 
-    # Start Dash in background thread
-    threading.Thread(target=run_dash, daemon=True).start()
-    # Run FastAPI
-    try:
-        print("Starting FastAPI server on port 8000 and Dash dashboard on port 8050...")
-        print("Waiting for RFID reader POST requests to http://<your-server>:8000/rfid-data. Configure Speedway Connect with this URL.")
-        uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
-    except Exception as e:
-        logging.error(f"FastAPI server error: {str(e)}")
-        print(f"Error starting FastAPI server: {str(e)}")
-        sys.exit(1)
+    asyncio.run(main())

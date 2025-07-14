@@ -17,3 +17,6 @@
 2025-07-11 14:36:59,342 - Received tag: {'AntennaID': 2, 'EPC': 'E2801160600002040A1B2C3D', 'LastSeen': 1752280617321.664, 'ImpinjPeakRSSI': -65.0, 'Phase Angle': 50.0, 'Doppler Frequency': 0.2}
 2025-07-11 14:36:59,342 - Received tag: {'AntennaID': 3, 'EPC': 'E2801160600002040A1B2C3D', 'LastSeen': 1752280617321.675, 'ImpinjPeakRSSI': -62.0, 'Phase Angle': 48.0, 'Doppler Frequency': 0.15}
 2025-07-11 14:36:59,342 - Received tag: {'AntennaID': 4, 'EPC': 'E2801160600002040A1B2C3D', 'LastSeen': 1752280617321.6838, 'ImpinjPeakRSSI': -63.5, 'Phase Angle': 47.0, 'Doppler Frequency': 0.12}
+2025-07-14 14:06:01,272 - Dash is running on http://0.0.0.0:8050/dashboard/
+
+2025-07-14 14:06:01,277 - FastAPI server error: asyncio.run() cannot be called from a running event loop
