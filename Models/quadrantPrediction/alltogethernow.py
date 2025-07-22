@@ -336,7 +336,10 @@ def main():
     print(data['quadrant'].value_counts())
     
     # Features and target
-    features = [f'rssi_{i}' for i in range(1, 5)] + [f'phase_angle_{i}' for i in range(1, 5)] + [f'doppler_frequency_{i}' for i in range(1, 5)] + ['rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff']
+    features = [f'rssi_{i}' for i in range(1, 5)] + \
+               [f'phase_angle_{i}' for i in range(1, 5)] + \
+               [f'doppler_frequency_{i}' for i in range(1, 5)] + \
+               ['rssi_1_2_diff', 'rssi_3_4_diff', 'phase_angle_1_2_diff', 'phase_angle_3_4_diff']
     target = 'quadrant'
     
     # Verify no NaNs before splitting
@@ -367,11 +370,11 @@ def main():
     print("Training Random Forest...")
     rfc = RandomForestClassifier(random_state=42, class_weight='balanced')
     param_grid = {
-    'n_estimators': [500],
-    'max_depth': [30],
-    'min_samples_split': [2],
-    'min_samples_leaf': [1],
-    'max_features': ['sqrt']
+        'n_estimators': [400, 500],
+        'max_depth': [50],
+        'min_samples_split': [2],
+        'min_samples_leaf': [1, 2],
+        'max_features': ['sqrt', 'log2', 0.5],
     }
     grid_search = GridSearchCV(rfc, param_grid, cv=5, scoring='accuracy', n_jobs=-1, verbose=2)
     grid_search.fit(X_train_scaled, y_train_balanced)
@@ -403,34 +406,39 @@ def main():
     for dataset, name in [(circle_data, 'circle_dynamic'), (line_data, 'line_dynamic'), (static_data, 'static')]:
         if dataset.empty:
             continue
-        test_data = dataset[dataset.index.isin(X_test.index)]
-        if not test_data.empty:
-            test_data = test_data.copy()
-            test_data['rssi_1_2_diff'] = test_data['rssi_1'] - test_data['rssi_2']
-            test_data['rssi_3_4_diff'] = test_data['rssi_3'] - test_data['rssi_4']
-            test_data['phase_angle_1_2_diff'] = test_data['phase_angle_1'] - test_data['phase_angle_2']
-            test_data['phase_angle_3_4_diff'] = test_data['phase_angle_3'] - test_data['phase_angle_4']
-            X_test_data = test_data[features]
-            X_test_data = X_test_data.fillna(X_test_data.mean())
-            X_test_data_scaled = scaler.transform(X_test_data)
-            y_test_data = test_data[target]
-            y_pred_data = model.predict(X_test_data_scaled)
-            
-            # Per-dataset accuracy
-            dataset_acc = accuracy_score(y_test_data, y_pred_data)
-            file_results.append({
-                'Dataset': name,
-                'Filename': 'All',
-                'Total Accuracy': dataset_acc
-            })
-            for q in quadrants:
-                q_mask = y_test_data == q
-                if q_mask.sum() > 0:
-                    file_results[-1][f'{q} Accuracy'] = accuracy_score(y_test_data[q_mask], y_pred_data[q_mask])
-                else:
-                    file_results[-1][f'{q} Accuracy'] = np.nan
-            
-            # Per-file accuracy
+        # Ensure test_data includes all columns by merging with original dataset
+        test_indices = X_test.index
+        test_data = dataset.loc[dataset.index.isin(test_indices)].copy()
+        if test_data.empty:
+            print(f"No test data for dataset: {name}")
+            continue
+        # Add pairwise feature differences
+        test_data['rssi_1_2_diff'] = test_data['rssi_1'] - test_data['rssi_2']
+        test_data['rssi_3_4_diff'] = test_data['rssi_3'] - test_data['rssi_4']
+        test_data['phase_angle_1_2_diff'] = test_data['phase_angle_1'] - test_data['phase_angle_2']
+        test_data['phase_angle_3_4_diff'] = test_data['phase_angle_3'] - test_data['phase_angle_4']
+        X_test_data = test_data[features]
+        X_test_data = X_test_data.fillna(X_test_data.mean())
+        X_test_data_scaled = scaler.transform(X_test_data)
+        y_test_data = test_data[target]
+        y_pred_data = model.predict(X_test_data_scaled)
+        
+        # Per-dataset accuracy
+        dataset_acc = accuracy_score(y_test_data, y_pred_data)
+        file_results.append({
+            'Dataset': name,
+            'Filename': 'All',
+            'Total Accuracy': dataset_acc
+        })
+        for q in quadrants:
+            q_mask = y_test_data == q
+            if q_mask.sum() > 0:
+                file_results[-1][f'{q} Accuracy'] = accuracy_score(y_test_data[q_mask], y_pred_data[q_mask])
+            else:
+                file_results[-1][f'{q} Accuracy'] = np.nan
+        
+        # Per-file accuracy
+        if 'filename' in test_data.columns:
             for filename in test_data['filename'].unique():
                 mask = test_data['filename'] == filename
                 file_acc = accuracy_score(y_test_data[mask], y_pred_data[mask])
@@ -445,6 +453,8 @@ def main():
                         file_results[-1][f'{q} Accuracy'] = accuracy_score(y_test_data[q_mask], y_pred_data[q_mask])
                     else:
                         file_results[-1][f'{q} Accuracy'] = np.nan
+        else:
+            print(f"Warning: 'filename' column missing in test_data for dataset: {name}")
     
     # Save results
     results_df = pd.DataFrame(results + file_results)
@@ -536,9 +546,9 @@ def main():
     plt.savefig('predictions.png')
     plt.close()
     
-    # Save model
-    joblib.dump(model, 'rfid_model.pkl')
-    joblib.dump(scaler, 'scaler.pkl')
+    # Save model and scaler
+    joblib.dump(model, 'model_ALL.pkl')
+    joblib.dump(scaler, 'scaler_ALL.pkl')
 
 if __name__ == '__main__':
     main()
