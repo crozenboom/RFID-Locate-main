@@ -10,21 +10,19 @@ import asyncio
 import uvicorn
 import sys
 import socket
+import os
 
-# === Configure separate loggers ===
-
-# General data + debug logger
+# Configure separate loggers
 data_logger = logging.getLogger("rfid_data")
 data_logger.setLevel(logging.INFO)
 data_handler = logging.FileHandler("rfid_data.log")
 data_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 data_logger.addHandler(data_handler)
 
-# Prediction-only logger (quadrant numbers only)
 prediction_logger = logging.getLogger("rfid_prediction")
 prediction_logger.setLevel(logging.INFO)
 prediction_handler = logging.FileHandler("rfid_predictions.log")
-prediction_handler.setFormatter(logging.Formatter('%(message)s'))  # Just the number
+prediction_handler.setFormatter(logging.Formatter('%(message)s'))
 prediction_logger.addHandler(prediction_handler)
 
 # FastAPI app
@@ -34,6 +32,7 @@ app = FastAPI(title="RFID Quadrant Prediction API", version="1.0")
 try:
     model = joblib.load('model_rssi.pkl')
     scaler = joblib.load('scaler_rssi.pkl')
+    data_logger.info("Model and scaler loaded successfully.")
 except FileNotFoundError as e:
     data_logger.error(f"Model or scaler file not found: {str(e)}")
     sys.exit(1)
@@ -43,6 +42,14 @@ tag_queue = queue.Queue()
 
 # Quadrant mapping
 QUADRANT_MAP = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+
+# Initialize CSV log file
+log_file = 'live_predictions.csv'
+if not os.path.exists(log_file):
+    pd.DataFrame(columns=[
+        'log_time', 'timestamp', 'reader', 'antenna', 'rssi', 'epc',
+        'phase_angle', 'channel_index', 'doppler_frequency', 'predicted_quadrant', 'confidence'
+    ]).to_csv(log_file, index=False)
 
 # Process tag data for prediction
 def process_tag_data(row):
@@ -63,12 +70,13 @@ def process_tag_data(row):
     data_logger.info(f"Scaled features for EPC {row.get('EPC')}: {X_scaled.tolist()}")
     
     prediction = model.predict(X_scaled)[0]
+    confidence = float(np.max(model.predict_proba(X_scaled)[0]))
     quadrant = QUADRANT_MAP.get(str(prediction), 0)
     
     # Log just the quadrant number
     prediction_logger.info(str(quadrant))
     
-    return quadrant
+    return quadrant, confidence
 
 # Async function to process tags
 async def process_tags():
@@ -119,10 +127,27 @@ async def process_tags():
                 
                 data_logger.info(f"Processed pivoted row (first): {pivoted[['EPC', 'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4']].iloc[0].to_dict() if not pivoted.empty else 'Empty'}")
                 
+                # Log predictions to CSV
+                log_data = []
                 for _, row in pivoted.iterrows():
-                    quadrant = process_tag_data(row)
+                    quadrant, confidence = process_tag_data(row)
                     print(f"EPC: {row['EPC']}, Quadrant: {quadrant}")
                     data_logger.info(f"EPC: {row['EPC']}, Quadrant: {quadrant}, RSSI: {[row[f'rssi_{i}'] for i in range(1, 5)]}")
+                    log_data.append({
+                        'log_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'timestamp': row['LastSeenGroup'] * 100000,
+                        'reader': 'reader1',  # Placeholder, update if available
+                        'antenna': 0,  # Aggregate, so no single antenna
+                        'rssi': row[['rssi_1', 'rssi_2', 'rssi_3', 'rssi_4']].mean(),
+                        'epc': row['EPC'],
+                        'phase_angle': 0.0,  # Not used
+                        'channel_index': 0.0,  # Not used
+                        'doppler_frequency': 0.0,  # Not used
+                        'predicted_quadrant': f'Q{quadrant}',
+                        'confidence': confidence
+                    })
+                pd.DataFrame(log_data).to_csv(log_file, mode='a', header=False, index=False)
+                data_logger.info(f"Logged predictions to {log_file}")
         except Exception as e:
             data_logger.error(f"Error processing tags: {str(e)}", exc_info=True)
         await asyncio.sleep(0.1)
