@@ -4,13 +4,9 @@
 # - Importance: The relative importance score (higher means more contribution to quadrant prediction).
 # - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or difference pair (e.g., A1-A2).
 Feature,Importance,Antenna_Position
-rssi_4_mean,0.21883652767087547,"A4=[15,0]"
-rssi_1_mean,0.18255005163731336,"A1=[0,0]"
-rssi_3_mean,0.16687002770173512,"A3=[15,15]"
-rssi_2_mean,0.13821774854325247,"A2=[0,15]"
-rssi_4,0.06608987128556855,"A4=[15,0]"
-rssi_2,0.0538105720381577,"A2=[0,15]"
-rssi_3,0.052976253275179186,"A3=[15,15]"
-rssi_1_2_diff,0.04948147997910501,A1-A2
-rssi_1,0.03985049146515941,"A1=[0,0]"
-rssi_3_4_diff,0.03131697640365374,A3-A4
+rssi_2,0.2734832294335515,"A2=[0,15]"
+rssi_4,0.21757732732807758,"A4=[15,0]"
+rssi_3,0.18661658138474146,"A3=[15,15]"
+rssi_1,0.16417733605395562,"A1=[0,0]"
+rssi_3_4_diff,0.08292563865353225,A3-A4
+rssi_1_2_diff,0.07521988714614164,A1-A2

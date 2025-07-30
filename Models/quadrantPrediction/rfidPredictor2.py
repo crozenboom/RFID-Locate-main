@@ -59,15 +59,12 @@ def process_tag_data(row):
         data[col] = row.get(col, -80.0)
     data['rssi_1_2_diff'] = data['rssi_1'] - data['rssi_2']
     data['rssi_3_4_diff'] = data['rssi_3'] - data['rssi_4']
-    for i in range(1, 5):
-        data[f'rssi_{i}_mean'] = row.get(f'rssi_{i}_mean', data[f'rssi_{i}'])
     
     data_logger.info(f"Processed features for EPC {row.get('EPC')}: {data}")
     
     features = [
         'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4',
-        'rssi_1_2_diff', 'rssi_3_4_diff',
-        'rssi_1_mean', 'rssi_2_mean', 'rssi_3_mean', 'rssi_4_mean'
+        'rssi_1_2_diff', 'rssi_3_4_diff'
     ]
     df_row = pd.DataFrame([data])[features]
     try:
@@ -146,12 +143,9 @@ async def process_tags():
                 recent_data = pd.concat([recent_data, new_data], ignore_index=True)
                 recent_data = recent_data.tail(100)
                 
-                for i in range(1, 5):
-                    pivoted[f'rssi_{i}_mean'] = pivoted[f'rssi_{i}'].rolling(window=5, min_periods=1).mean().fillna(pivoted[f'rssi_{i}'])
-                
                 data_logger.info(f"Pivot table columns: {pivoted.columns.tolist()}")
                 data_logger.info(f"Pivot table size: {len(pivoted)} rows")
-                data_logger.info(f"Processed pivoted row (first): {pivoted[['EPC', 'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4', 'rssi_1_mean', 'rssi_2_mean', 'rssi_3_mean', 'rssi_4_mean']].iloc[0].to_dict() if not pivoted.empty else 'Empty'}")
+                data_logger.info(f"Processed pivoted row (first): {pivoted[['EPC', 'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4']].iloc[0].to_dict() if not pivoted.empty else 'Empty'}")
                 
                 log_data = []
                 for _, row in pivoted.iterrows():

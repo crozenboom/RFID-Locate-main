@@ -23,13 +23,13 @@ def coordinates_to_quadrant(x, y):
 
 # Parse quadrant from filename
 def parse_quadrant_from_filename(filename):
-    """Extract quadrant from filename like quad1.csv or quad1_test.csv."""
+    """Extract quadrant from filename like quad1.csv, quadz1_train.csv, etc."""
     base = os.path.splitext(os.path.basename(filename))[0].lower()
-    if base.startswith('quad'):
-        quadrant_num = base.replace('quad', '').replace('_test', '')
+    if base.startswith('quad') or base.startswith('quadz'):
+        quadrant_num = base.replace('quad', '').replace('z', '').replace('_train', '').replace('_test', '')
         if quadrant_num in ['1', '2', '3', '4']:
             return f'Q{quadrant_num}'
-    print(f"Warning: Invalid filename {filename}, expecting quad1.csv, quad1_test.csv, etc.")
+    print(f"Warning: Invalid filename {filename}, expecting quad1.csv, quadz1_train.csv, etc.")
     return None
 
 # Load and preprocess data
@@ -69,11 +69,6 @@ def load_and_preprocess_data(file_paths):
             for col in pivoted.columns:
                 if col.startswith('rssi_'):
                     pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
-            # Add rssi_1_mean, rssi_2_mean, rssi_3_mean, rssi_4_mean
-            for i in range(1, 5):
-                if f'rssi_{i}' in pivoted.columns:
-                    pivoted[f'rssi_{i}_mean'] = pivoted[f'rssi_{i}'].rolling(window=5, min_periods=1).mean()
-                    pivoted[f'rssi_{i}_mean'] = pivoted[f'rssi_{i}_mean'].fillna(pivoted[f'rssi_{i}'].mean())
             # Drop rows with excessive NaNs
             nan_threshold = len(pivoted.columns) * 0.1
             if pivoted.isna().sum().max() > nan_threshold:
@@ -109,20 +104,29 @@ def load_and_preprocess_data(file_paths):
 def main():
     """Main function to load data, train model, and evaluate on test data."""
     start_time = time()
-    # Training file paths
+    # Base path for files
     base_path = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/quadTesting/'
+    # Training file paths
     train_files = [
-        (f'{base_path}quad1.csv', 'Q1'),
-        (f'{base_path}quad2.csv', 'Q2'),
-        (f'{base_path}quad3.csv', 'Q3'),
-        (f'{base_path}quad4.csv', 'Q4')
+        (f'{base_path}quad1_train.csv', 'Q1'),
+        (f'{base_path}quad2_train.csv', 'Q2'),
+        (f'{base_path}quad3_train.csv', 'Q3'),
+        (f'{base_path}quad4_train.csv', 'Q4'),
+        (f'{base_path}quadz1_train.csv', 'Q1'),
+        (f'{base_path}quadz2_train.csv', 'Q2'),
+        (f'{base_path}quadz3_train.csv', 'Q3'),
+        (f'{base_path}quadz4_train.csv', 'Q4')
     ]
     # Test file paths
     test_files = [
         (f'{base_path}quad1_test.csv', 'Q1'),
         (f'{base_path}quad2_test.csv', 'Q2'),
         (f'{base_path}quad3_test.csv', 'Q3'),
-        (f'{base_path}quad4_test.csv', 'Q4')
+        (f'{base_path}quad4_test.csv', 'Q4'),
+        (f'{base_path}quadz1_test.csv', 'Q1'),
+        (f'{base_path}quadz2_test.csv', 'Q2'),
+        (f'{base_path}quadz3_test.csv', 'Q3'),
+        (f'{base_path}quadz4_test.csv', 'Q4')
     ]
     
     # Load training data
@@ -154,8 +158,7 @@ def main():
     # Features and target
     features = (
         [f'rssi_{i}' for i in range(1, 5)] +
-        ['rssi_1_2_diff', 'rssi_3_4_diff'] +
-        [f'rssi_{i}_mean' for i in range(1, 5)]
+        ['rssi_1_2_diff', 'rssi_3_4_diff']
     )
     target = 'quadrant'
     
@@ -173,16 +176,9 @@ def main():
     X_test = test_data[features]
     y_test = test_data[target]
     
-    # Apply SMOTE to training data only
-    smote = SMOTE(sampling_strategy='auto', random_state=42, k_neighbors=3)
-    print("\nApplying SMOTE to training data...")
-    try:
-        X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train)
-    except ValueError as e:
-        print(f"Error applying SMOTE: {str(e)}")
-        return
-    print("Sample counts after SMOTE:")
-    print(pd.Series(y_train_balanced).value_counts())
+    # Use original unbalanced data
+    X_train_balanced = X_train
+    y_train_balanced = y_train
     
     # Scale features
     scaler = StandardScaler()
@@ -249,8 +245,7 @@ def main():
     importances = model.feature_importances_
     antenna_positions = {
         'rssi_1': 'A1=[0,0]', 'rssi_2': 'A2=[0,15]', 'rssi_3': 'A3=[15,15]', 'rssi_4': 'A4=[15,0]',
-        'rssi_1_2_diff': 'A1-A2', 'rssi_3_4_diff': 'A3-A4',
-        'rssi_1_mean': 'A1=[0,0]', 'rssi_2_mean': 'A2=[0,15]', 'rssi_3_mean': 'A3=[15,15]', 'rssi_4_mean': 'A4=[15,0]'
+        'rssi_1_2_diff': 'A1-A2', 'rssi_3_4_diff': 'A3-A4'
     }
     feature_imp_df = pd.DataFrame({
         'Feature': features,
