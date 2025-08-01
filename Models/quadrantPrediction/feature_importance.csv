@@ -1,12 +1,14 @@
 # Feature Importance
 # This file shows the importance of each feature in the Random Forest model.
-# - Feature: The signal feature (rssi) or pairwise difference for each antenna (1-4).
+# - Feature: The signal feature (rssi, phase_angle, doppler_frequency) for each antenna (1-4).
 # - Importance: The relative importance score (higher means more contribution to quadrant prediction).
-# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or difference pair (e.g., A1-A2).
+# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]).
 Feature,Importance,Antenna_Position
-rssi_2,0.2734832294335515,"A2=[0,15]"
-rssi_4,0.21757732732807758,"A4=[15,0]"
-rssi_3,0.18661658138474146,"A3=[15,15]"
-rssi_1,0.16417733605395562,"A1=[0,0]"
-rssi_3_4_diff,0.08292563865353225,A3-A4
-rssi_1_2_diff,0.07521988714614164,A1-A2
+rssi_2,0.2514083454036416,"A2=[0,15]"
+rssi_3,0.19954520504256287,"A3=[15,15]"
+rssi_4,0.1686866910421739,"A4=[15,0]"
+rssi_1,0.135776680356756,"A1=[0,0]"
+doppler_frequency_4,0.09937316347974874,"A4=[15,0]"
+phase_angle_3,0.07989757521007487,"A3=[15,15]"
+phase_angle_4,0.04470026248134304,"A4=[15,0]"
+doppler_frequency_1,0.020612076983699046,"A1=[0,0]"

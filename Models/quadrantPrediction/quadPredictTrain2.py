@@ -4,10 +4,12 @@ from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from sklearn.feature_selection import RFE
 from imblearn.over_sampling import SMOTE
 import joblib
 import os
 from time import time
+from datetime import datetime
 
 # Define quadrant mapping function
 def coordinates_to_quadrant(x, y):
@@ -23,13 +25,25 @@ def coordinates_to_quadrant(x, y):
 
 # Parse quadrant from filename
 def parse_quadrant_from_filename(filename):
-    """Extract quadrant from filename like quad1.csv, quadz1_train.csv, etc."""
+    """Extract quadrant from filename like quad1.csv, quadz1_train.csv, or Test8-X.csv."""
     base = os.path.splitext(os.path.basename(filename))[0].lower()
     if base.startswith('quad') or base.startswith('quadz'):
         quadrant_num = base.replace('quad', '').replace('z', '').replace('_train', '').replace('_test', '')
         if quadrant_num in ['1', '2', '3', '4']:
             return f'Q{quadrant_num}'
-    print(f"Warning: Invalid filename {filename}, expecting quad1.csv, quadz1_train.csv, etc.")
+    elif base.startswith('test8-'):
+        test_num = int(base.replace('test8-', ''))
+        # Map Test8-1.csv to Test8-16.csv to coordinates
+        coordinates = {
+            1: (2, 5), 2: (2, 8), 3: (2, 11), 4: (2, 14),
+            5: (5, 5), 6: (5, 8), 7: (5, 11), 8: (5, 14),
+            9: (8, 5), 10: (8, 8), 11: (8, 11), 12: (8, 14),
+            13: (11, 5), 14: (11, 8), 15: (11, 11), 16: (11, 14)
+        }
+        if test_num in coordinates:
+            x, y = coordinates[test_num]
+            return coordinates_to_quadrant(x, y)
+    print(f"Warning: Invalid filename {filename}, expecting quad1.csv, quadz1_train.csv, or Test8-X.csv.")
     return None
 
 # Load and preprocess data
@@ -44,30 +58,44 @@ def load_and_preprocess_data(file_paths):
         print(f"Processing file: {file_path}")
         try:
             df = pd.read_csv(file_path)
+            # Convert ISO timestamp to Unix seconds if present
+            if 'timestamp' in df.columns and df['timestamp'].dtype == 'object':
+                try:
+                    df['timestamp'] = pd.to_datetime(df['timestamp']).astype(int) / 10**9
+                except Exception as e:
+                    print(f"Error converting timestamp in {file_path}: {str(e)}")
+                    continue
             # Log and clean data
             if 'rssi' in df.columns:
                 print(f"RSSI range in {file_path}: {df['rssi'].min()} to {df['rssi'].max()}")
                 outliers_rssi = (df['rssi'] < -100) | (df['rssi'] > -30)
                 print(f"Outliers in rssi (<-100 or >-30 dBm) in {file_path}: {outliers_rssi.sum()}")
                 df.loc[outliers_rssi, 'rssi'] = np.nan
+            if 'phase_angle' in df.columns:
+                print(f"Phase angle range in {file_path}: {df['phase_angle'].min()} to {df['phase_angle'].max()}")
+                df.loc[df['phase_angle'].isna(), 'phase_angle'] = np.nan
+            if 'doppler_frequency' in df.columns:
+                print(f"Doppler frequency range in {file_path}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
+                df['doppler_frequency'] = df['doppler_frequency'].clip(lower=-3000, upper=3000)
+                print(f"Doppler frequency range after clipping in {file_path}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
+                df.loc[df['doppler_frequency'].isna(), 'doppler_frequency'] = np.nan
             # Validate quadrant from filename
             parsed_quadrant = parse_quadrant_from_filename(file_path)
             if parsed_quadrant is None or parsed_quadrant != quadrant:
                 print(f"Skipping {file_path}: Filename does not match expected quadrant {quadrant}.")
                 continue
-            # Pivot data to get one row per timestamp
-            df['timestamp'] = df['timestamp'].round(3)
+            # Pivot to include rssi, phase_angle, and doppler_frequency
             pivoted = df.pivot_table(
                 index='timestamp',
                 columns='antenna',
-                values=['rssi'],
+                values=['rssi', 'phase_angle', 'doppler_frequency'],
                 aggfunc='mean'
             )
             pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
             pivoted = pivoted.reset_index()
-            # Fill NaNs with mean
+            # Fill NaNs with mean for all feature types
             for col in pivoted.columns:
-                if col.startswith('rssi_'):
+                if col.startswith(('rssi_', 'phase_angle_', 'doppler_frequency_')):
                     pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
             # Drop rows with excessive NaNs
             nan_threshold = len(pivoted.columns) * 0.1
@@ -106,7 +134,8 @@ def main():
     start_time = time()
     # Base path for files
     base_path = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/quadTesting/'
-    # Training file paths
+    test8_path = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Test8/'
+    # Training file paths (dynamic + static Test 8 data)
     train_files = [
         (f'{base_path}quad1_train.csv', 'Q1'),
         (f'{base_path}quad2_train.csv', 'Q2'),
@@ -115,7 +144,24 @@ def main():
         (f'{base_path}quadz1_train.csv', 'Q1'),
         (f'{base_path}quadz2_train.csv', 'Q2'),
         (f'{base_path}quadz3_train.csv', 'Q3'),
-        (f'{base_path}quadz4_train.csv', 'Q4')
+        (f'{base_path}quadz4_train.csv', 'Q4'),
+        # Test 8 static data
+        (f'{test8_path}Test8-1.csv', 'Q1'),  # (2, 5)
+        (f'{test8_path}Test8-2.csv', 'Q2'),  # (2, 8)
+        (f'{test8_path}Test8-3.csv', 'Q2'),  # (2, 11)
+        (f'{test8_path}Test8-4.csv', 'Q2'),  # (2, 14)
+        (f'{test8_path}Test8-5.csv', 'Q1'),  # (5, 5)
+        (f'{test8_path}Test8-6.csv', 'Q2'),  # (5, 8)
+        (f'{test8_path}Test8-7.csv', 'Q2'),  # (5, 11)
+        (f'{test8_path}Test8-8.csv', 'Q2'),  # (5, 14)
+        (f'{test8_path}Test8-9.csv', 'Q4'),  # (8, 5)
+        (f'{test8_path}Test8-10.csv', 'Q3'), # (8, 8)
+        (f'{test8_path}Test8-11.csv', 'Q3'), # (8, 11)
+        (f'{test8_path}Test8-12.csv', 'Q3'), # (8, 14)
+        (f'{test8_path}Test8-13.csv', 'Q4'), # (11, 5)
+        (f'{test8_path}Test8-14.csv', 'Q3'), # (11, 8)
+        (f'{test8_path}Test8-15.csv', 'Q3'), # (11, 11)
+        (f'{test8_path}Test8-16.csv', 'Q3'), # (11, 14)
     ]
     # Test file paths
     test_files = [
@@ -126,7 +172,11 @@ def main():
         (f'{base_path}quadz1_test.csv', 'Q1'),
         (f'{base_path}quadz2_test.csv', 'Q2'),
         (f'{base_path}quadz3_test.csv', 'Q3'),
-        (f'{base_path}quadz4_test.csv', 'Q4')
+        (f'{base_path}quadz4_test.csv', 'Q4'),
+        (f'{test8_path}Test8-4.csv', 'Q2'),  # (2, 14)
+        (f'{test8_path}Test8-8.csv', 'Q2'),  # (5, 14)
+        (f'{test8_path}Test8-12.csv', 'Q3'), # (8, 14)
+        (f'{test8_path}Test8-16.csv', 'Q3'), # (11, 14)
     ]
     
     # Load training data
@@ -143,23 +193,18 @@ def main():
         print("Error: Failed to load test data. Exiting.")
         return
     
-    # Add pairwise feature differences
-    train_data['rssi_1_2_diff'] = train_data['rssi_1'] - train_data['rssi_2']
-    train_data['rssi_3_4_diff'] = train_data['rssi_3'] - train_data['rssi_4']
-    test_data['rssi_1_2_diff'] = test_data['rssi_1'] - test_data['rssi_2']
-    test_data['rssi_3_4_diff'] = test_data['rssi_3'] - test_data['rssi_4']
-    
     # Log sample counts per quadrant
     print("\nTraining sample counts per quadrant:")
     print(train_data['quadrant'].value_counts())
     print("\nTest sample counts per quadrant:")
     print(test_data['quadrant'].value_counts())
     
-    # Features and target
-    features = (
-        [f'rssi_{i}' for i in range(1, 5)] +
-        ['rssi_1_2_diff', 'rssi_3_4_diff']
-    )
+    # Reintroduce all features
+    features = [
+        'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4',
+        'phase_angle_3', 'phase_angle_4',
+        'doppler_frequency_1', 'doppler_frequency_2', 'doppler_frequency_3', 'doppler_frequency_4'
+    ]
     target = 'quadrant'
     
     # Verify no NaNs
@@ -176,27 +221,41 @@ def main():
     X_test = test_data[features]
     y_test = test_data[target]
     
-    # Use original unbalanced data
-    X_train_balanced = X_train
-    y_train_balanced = y_train
+    # Apply SMOTE to balance training data
+    print("\nApplying SMOTE to balance training data...")
+    smote = SMOTE(random_state=42, sampling_strategy={'Q1': 5602, 'Q2': 5602, 'Q3': 5602, 'Q4': 5602})
+    X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train)
+    print("Balanced training sample counts per quadrant:")
+    print(pd.Series(y_train_balanced).value_counts())
     
     # Scale features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train_balanced)
     X_test_scaled = scaler.transform(X_test)
     
+    # Feature selection with RFE
+    print("\nPerforming Recursive Feature Elimination...")
+    rfc_temp = RandomForestClassifier(random_state=42, n_estimators=100)
+    rfe = RFE(estimator=rfc_temp, n_features_to_select=8)
+    rfe.fit(X_train_scaled, y_train_balanced)
+    selected_features = [f for f, s in zip(features, rfe.support_) if s]
+    print(f"Selected features: {selected_features}")
+    
+    X_train_scaled = X_train_scaled[:, rfe.support_]
+    X_test_scaled = X_test_scaled[:, rfe.support_]
+    
     # Train Random Forest with GridSearchCV
     print("\nTraining Random Forest...")
-    rfc = RandomForestClassifier(random_state=42, class_weight='balanced', max_samples=0.4)
+    rfc = RandomForestClassifier(random_state=42, class_weight='balanced', max_samples=0.1)
     param_grid = {
-        'n_estimators': [80, 120],
-        'max_depth': [2, 3],
-        'min_samples_split': [80, 100],
-        'min_samples_leaf': [40, 50],
-        'max_features': ['sqrt', 'log2']
+        'n_estimators': [100, 150],
+        'max_depth': [2, 3, 4],
+        'min_samples_split': [100, 120],
+        'min_samples_leaf': [80, 100],
+        'max_features': ['sqrt']
     }
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    grid_search = GridSearchCV(rfc, param_grid, cv=cv, scoring='accuracy', n_jobs=-1, verbose=2)
+    grid_search = GridSearchCV(rfc, param_grid, cv=cv, scoring='f1_weighted', n_jobs=-1, verbose=2)
     grid_search.fit(X_train_scaled, y_train_balanced)
     
     # Best model
@@ -217,6 +276,24 @@ def main():
     print(f"\nTest accuracy: {test_accuracy:.4f}")
     print("\nTest classification report:")
     print(classification_report(y_test, y_test_pred, target_names=['Q1', 'Q2', 'Q3', 'Q4']))
+    
+    # Save live predictions
+    live_predictions = pd.DataFrame({
+        'Timestamp': test_data['timestamp'],
+        'Actual_Quadrant': y_test,
+        'Predicted_Quadrant': y_test_pred
+    })
+    live_predictions_file = 'live_predictions.csv'
+    with open(live_predictions_file, 'w') as f:
+        f.write(
+            "# Live Predictions\n"
+            "# This file contains the actual vs predicted quadrants for test data.\n"
+            "# - Timestamp: Time of the RFID reading.\n"
+            "# - Actual_Quadrant: True quadrant (Q1, Q2, Q3, Q4).\n"
+            "# - Predicted_Quadrant: Predicted quadrant by the model.\n"
+        )
+    live_predictions.to_csv(live_predictions_file, mode='w', index=False)
+    print(f"Live predictions saved to: {os.path.abspath(live_predictions_file)}")
     
     # Per-quadrant accuracy
     quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
@@ -245,12 +322,14 @@ def main():
     importances = model.feature_importances_
     antenna_positions = {
         'rssi_1': 'A1=[0,0]', 'rssi_2': 'A2=[0,15]', 'rssi_3': 'A3=[15,15]', 'rssi_4': 'A4=[15,0]',
-        'rssi_1_2_diff': 'A1-A2', 'rssi_3_4_diff': 'A3-A4'
+        'phase_angle_3': 'A3=[15,15]', 'phase_angle_4': 'A4=[15,0]',
+        'doppler_frequency_1': 'A1=[0,0]', 'doppler_frequency_2': 'A2=[0,15]',
+        'doppler_frequency_3': 'A3=[15,15]', 'doppler_frequency_4': 'A4=[15,0]'
     }
     feature_imp_df = pd.DataFrame({
-        'Feature': features,
+        'Feature': selected_features,
         'Importance': importances,
-        'Antenna_Position': [antenna_positions[f] for f in features]
+        'Antenna_Position': [antenna_positions[f] for f in selected_features]
     })
     feature_imp_df = feature_imp_df.sort_values('Importance', ascending=False)
     feature_imp_file = 'feature_importance.csv'
@@ -258,9 +337,9 @@ def main():
         f.write(
             "# Feature Importance\n"
             "# This file shows the importance of each feature in the Random Forest model.\n"
-            "# - Feature: The signal feature (rssi) or pairwise difference for each antenna (1-4).\n"
+            "# - Feature: The signal feature (rssi, phase_angle, doppler_frequency) for each antenna (1-4).\n"
             "# - Importance: The relative importance score (higher means more contribution to quadrant prediction).\n"
-            "# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or difference pair (e.g., A1-A2).\n"
+            "# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]).\n"
         )
     feature_imp_df.to_csv(feature_imp_file, mode='a', index=False)
     print(f"Feature importance saved to: {os.path.abspath(feature_imp_file)}")
