@@ -1,3 +1,5 @@
+!! ADDED EXTENSION CABLES TO A1 & A4 !!
+
 Test9-1
 - zone 1
 - zig zag
