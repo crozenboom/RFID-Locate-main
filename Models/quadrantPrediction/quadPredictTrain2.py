@@ -69,31 +69,23 @@ def load_and_preprocess_data(file_paths):
                 outliers_rssi = (df['rssi'] < -100) | (df['rssi'] > -30)
                 print(f"Outliers in rssi (<-100 or >-30 dBm) in {file_path}: {outliers_rssi.sum()}")
                 df.loc[outliers_rssi, 'rssi'] = np.nan
-            if 'phase_angle' in df.columns:
-                print(f"Phase angle range in {file_path}: {df['phase_angle'].min()} to {df['phase_angle'].max()}")
-                df.loc[df['phase_angle'].isna(), 'phase_angle'] = np.nan
-            if 'doppler_frequency' in df.columns:
-                print(f"Doppler frequency range in {file_path}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
-                df['doppler_frequency'] = df['doppler_frequency'].clip(lower=-3000, upper=3000)
-                print(f"Doppler frequency range after clipping in {file_path}: {df['doppler_frequency'].min()} to {df['doppler_frequency'].max()}")
-                df.loc[df['doppler_frequency'].isna(), 'doppler_frequency'] = np.nan
             # Validate quadrant from filename
             parsed_quadrant = parse_quadrant_from_filename(file_path)
             if parsed_quadrant is None or parsed_quadrant != quadrant:
                 print(f"Skipping {file_path}: Filename does not match expected quadrant {quadrant}.")
                 continue
-            # Pivot to include rssi, phase_angle, and doppler_frequency
+            # Pivot to include only rssi
             pivoted = df.pivot_table(
                 index='timestamp',
                 columns='antenna',
-                values=['rssi', 'phase_angle', 'doppler_frequency'],
+                values=['rssi'],
                 aggfunc='mean'
             )
-            pivoted.columns = [f'{col[0]}_{col[1]}' for col in pivoted.columns]
+            pivoted.columns = [f'rssi_{col[1]}' for col in pivoted.columns]
             pivoted = pivoted.reset_index()
-            # Fill NaNs with mean for all feature types
+            # Fill NaNs with mean for RSSI features
             for col in pivoted.columns:
-                if col.startswith(('rssi_', 'phase_angle_', 'doppler_frequency_')):
+                if col.startswith('rssi_'):
                     pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
             # Compute RSSI difference features
             pivoted['rssi_diff_1_2'] = pivoted['rssi_1'] - pivoted['rssi_2']
@@ -143,7 +135,7 @@ def main():
     # Base path for files
     base_path = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/quadTesting/'
     test8_path = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Test8/'
-    # Training file paths (dynamic + static Test 8 data)
+    # Training file paths (dynamic + static Test 8 data, exclude Test8-13.csv)
     train_files = [
         (f'{base_path}quad1_train.csv', 'Q1'),
         (f'{base_path}quad2_train.csv', 'Q2'),
@@ -153,7 +145,7 @@ def main():
         (f'{base_path}quadz2_train.csv', 'Q2'),
         (f'{base_path}quadz3_train.csv', 'Q3'),
         (f'{base_path}quadz4_train.csv', 'Q4'),
-        # Test 8 static data (13 files, includes Test8-13.csv for Q4)
+        # Test 8 static data (12 files, exclude Test8-13.csv)
         (f'{test8_path}Test8-1.csv', 'Q1'),  # (2, 5)
         (f'{test8_path}Test8-2.csv', 'Q2'),  # (2, 8)
         (f'{test8_path}Test8-3.csv', 'Q2'),  # (2, 11)
@@ -166,9 +158,8 @@ def main():
         (f'{test8_path}Test8-15.csv', 'Q3'), # (11, 11)
         (f'{test8_path}Test8-16.csv', 'Q3'), # (11, 14)
         (f'{test8_path}Test8-9.csv', 'Q4'),  # (8, 5)
-        (f'{test8_path}Test8-13.csv', 'Q4'), # (11, 5)
     ]
-    # Test file paths (dynamic + static Test 8 data)
+    # Test file paths (dynamic + static Test 8 data, include Test8-13.csv)
     test_files = [
         (f'{base_path}quad1_test.csv', 'Q1'),
         (f'{base_path}quad2_test.csv', 'Q2'),
@@ -178,7 +169,7 @@ def main():
         (f'{base_path}quadz2_test.csv', 'Q2'),
         (f'{base_path}quadz3_test.csv', 'Q3'),
         (f'{base_path}quadz4_test.csv', 'Q4'),
-        # Test 8 static data (4 files, one per quadrant)
+        # Test 8 static data (4 files, include Test8-13.csv)
         (f'{test8_path}Test8-5.csv', 'Q1'),  # (5, 5)
         (f'{test8_path}Test8-4.csv', 'Q2'),  # (2, 14)
         (f'{test8_path}Test8-8.csv', 'Q2'),  # (5, 14)
@@ -205,12 +196,10 @@ def main():
     print("\nTest sample counts per quadrant:")
     print(test_data['quadrant'].value_counts())
     
-    # Define features (17 features)
+    # Define features (10 features)
     features = [
         'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4',
-        'phase_angle_1', 'phase_angle_2', 'phase_angle_3', 'phase_angle_4',
-        'doppler_frequency_1', 'doppler_frequency_2', 'doppler_frequency_3', 'doppler_frequency_4',
-        'rssi_diff_1_2', 'rssi_diff_3_4', 'rssi_diff_1_4', 'rssi_diff_2_3', 'rssi_diff_1_3'
+        'rssi_diff_1_2', 'rssi_diff_3_4', 'rssi_diff_1_4', 'rssi_diff_2_3', 'rssi_diff_1_3', 'rssi_diff_4_2'
     ]
     target = 'quadrant'
     
@@ -247,9 +236,9 @@ def main():
         'n_estimators': [100, 150],
         'max_depth': [1],
         'min_samples_split': [250, 300],
-        'min_samples_leaf': [300, 350],
+        'min_samples_leaf': [200, 250, 300],
         'max_features': ['sqrt'],
-        'max_samples': [0.2]
+        'max_samples': [0.2, 0.3]
     }
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     grid_search = GridSearchCV(rfc, param_grid, cv=cv, scoring='f1_weighted', n_jobs=-1, verbose=2)
@@ -317,9 +306,8 @@ def main():
     importances = model.feature_importances_
     antenna_positions = {
         'rssi_1': 'A1=[0,0]', 'rssi_2': 'A2=[0,15]', 'rssi_3': 'A3=[15,15]', 'rssi_4': 'A4=[15,0]',
-        'phase_angle_1': 'A1=[0,0]', 'phase_angle_2': 'A2=[0,15]', 'phase_angle_3': 'A3=[15,15]', 'phase_angle_4': 'A4=[15,0]',
-        'doppler_frequency_1': 'A1=[0,0]', 'doppler_frequency_2': 'A2=[0,15]', 'doppler_frequency_3': 'A3=[15,15]', 'doppler_frequency_4': 'A4=[15,0]',
-        'rssi_diff_1_2': 'A1-A2', 'rssi_diff_3_4': 'A3-A4', 'rssi_diff_1_4': 'A1-A4', 'rssi_diff_2_3': 'A2-A3', 'rssi_diff_1_3': 'A1-A3'
+        'rssi_diff_1_2': 'A1-A2', 'rssi_diff_3_4': 'A3-A4', 'rssi_diff_1_4': 'A1-A4', 'rssi_diff_2_3': 'A2-A3', 
+        'rssi_diff_1_3': 'A1-A3', 'rssi_diff_4_2': 'A4-A2'
     }
     feature_imp_df = pd.DataFrame({
         'Feature': features,
@@ -332,9 +320,9 @@ def main():
         f.write(
             "# Feature Importance\n"
             "# This file shows the importance of each feature in the Random Forest model.\n"
-            "# - Feature: The signal feature (rssi, phase_angle, doppler_frequency) for each antenna (1-4) or RSSI difference.\n"
+            "# - Feature: The RSSI feature for each antenna (1-4) or RSSI difference.\n"
             "# - Importance: The relative importance score (higher means more contribution to quadrant prediction).\n"
-            "# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or 'A1-A2'/'A3-A4'/'A1-A4'/'A2-A3'/'A1-A3' for differences.\n"
+            "# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or 'A1-A2'/'A3-A4'/'A1-A4'/'A2-A3'/'A1-A3'/'A4-A2' for differences.\n"
         )
     feature_imp_df.to_csv(feature_imp_file, mode='a', index=False)
     print(f"Feature importance saved to: {os.path.abspath(feature_imp_file)}")
