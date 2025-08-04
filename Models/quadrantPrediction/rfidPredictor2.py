@@ -57,26 +57,32 @@ def process_tag_data(row):
     # Fill RSSI values
     for i in range(1, 5):
         data[f'rssi_{i}'] = row.get(f'rssi_{i}', -80.0)
-    # Phase angles (used: 3 and 4)
-    data['phase_angle_3'] = row.get('phase_angle_3', 0.0)
-    data['phase_angle_4'] = row.get('phase_angle_4', 0.0)
-    # Doppler frequencies (used: 1 to 4)
+    # Phase angle (all antennas)
+    for i in range(1, 5):
+        data[f'phase_angle_{i}'] = row.get(f'phase_angle_{i}', 0.0)
+    # Doppler frequency (all antennas)
     for i in range(1, 5):
         data[f'doppler_frequency_{i}'] = row.get(f'doppler_frequency_{i}', 0.0)
+    # RSSI difference features
+    data['rssi_diff_1_2'] = data['rssi_1'] - data['rssi_2']
+    data['rssi_diff_3_4'] = data['rssi_3'] - data['rssi_4']
+    data['rssi_diff_1_4'] = data['rssi_1'] - data['rssi_4']
+    data['rssi_diff_2_3'] = data['rssi_2'] - data['rssi_3']
+    data['rssi_diff_1_3'] = data['rssi_1'] - data['rssi_3']
 
     features = [
         'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4',
-        'phase_angle_3', 'phase_angle_4',
-        'doppler_frequency_1', 'doppler_frequency_2',
-        'doppler_frequency_3', 'doppler_frequency_4'
+        'phase_angle_1', 'phase_angle_2', 'phase_angle_3', 'phase_angle_4',
+        'doppler_frequency_1', 'doppler_frequency_2', 'doppler_frequency_3', 'doppler_frequency_4',
+        'rssi_diff_1_2', 'rssi_diff_3_4', 'rssi_diff_1_4', 'rssi_diff_2_3', 'rssi_diff_1_3'
     ]
 
     df_row = pd.DataFrame([data])[features]
     try:
         X_scaled = scaler.transform(df_row)
-        prediction = model.predict(X_scaled)[0]
+        y_pred = model.predict(X_scaled)[0]
         confidence = float(np.max(model.predict_proba(X_scaled)[0]))
-        quadrant = QUADRANT_MAP.get(str(prediction), 'Unknown')
+        quadrant = QUADRANT_MAP.get(str(y_pred), 'Unknown')
         prediction_logger.info(quadrant)
         return quadrant, confidence
     except Exception as e:
@@ -112,25 +118,32 @@ async def process_tags():
             pivoted = df.pivot_table(
                 index='time_window',
                 columns='AntennaID',
-                values='ImpinjPeakRSSI',
+                values=['ImpinjPeakRSSI', 'ImpinjRFPhaseAngle', 'ImpinjRFDopplerFrequency'],
                 aggfunc='mean'
             ).reset_index()
 
-            pivoted.columns = [f'rssi_{col}' if col in [1, 2, 3, 4] else col for col in pivoted.columns]
+            pivoted.columns = [
+                f'rssi_{col[1]}' if col[0] == 'ImpinjPeakRSSI' else
+                f'phase_angle_{col[1]}' if col[0] == 'ImpinjRFPhaseAngle' else
+                f'doppler_frequency_{col[1]}' if col[0] == 'ImpinjRFDopplerFrequency' else col
+                for col in pivoted.columns
+            ]
             for i in range(1, 5):
-                col = f'rssi_{i}'
-                if col not in pivoted.columns:
-                    pivoted[col] = -80.0
-                pivoted[col] = pivoted[col].fillna(-80.0)
+                rssi_col = f'rssi_{i}'
+                phase_col = f'phase_angle_{i}'
+                doppler_col = f'doppler_frequency_{i}'
+                if rssi_col not in pivoted.columns:
+                    pivoted[rssi_col] = -80.0
+                if phase_col not in pivoted.columns:
+                    pivoted[phase_col] = 0.0
+                if doppler_col not in pivoted.columns:
+                    pivoted[doppler_col] = 0.0
+                pivoted[rssi_col] = pivoted[rssi_col].fillna(-80.0)
+                pivoted[phase_col] = pivoted[phase_col].fillna(0.0)
+                pivoted[doppler_col] = pivoted[doppler_col].fillna(0.0)
 
             epc_map = df.groupby('time_window')['EPC'].last().to_dict()
             pivoted['EPC'] = pivoted['time_window'].map(epc_map)
-
-            # Add dummy phase and doppler values for now
-            pivoted['phase_angle_3'] = 0.0
-            pivoted['phase_angle_4'] = 0.0
-            for i in range(1, 5):
-                pivoted[f'doppler_frequency_{i}'] = 0.0
 
             log_data = []
             for _, row in pivoted.iterrows():
@@ -169,7 +182,9 @@ async def receive_rfid_data(payload: Dict):
                 'AntennaID': int(antenna_id),
                 'EPC': tag.get('epc', tag.get('EPC', '')),
                 'LastSeen': tag.get('firstSeenTimestamp', tag.get('timestamp', int(datetime.now().timestamp() * 1000))),
-                'ImpinjPeakRSSI': rssi
+                'ImpinjPeakRSSI': rssi,
+                'ImpinjRFPhaseAngle': tag.get('phaseAngle', tag.get('ImpinjRFPhaseAngle', 0.0)),
+                'ImpinjRFDopplerFrequency': tag.get('dopplerFrequency', tag.get('ImpinjRFDopplerFrequency', 0.0))
             }
             tag_queue.put(tag_data)
         return {"status": "success", "message": f"Received {len(tags)} tags"}
