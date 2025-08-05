@@ -4,7 +4,7 @@
 # - Columns: Predicted quadrants (Q1, Q2, Q3, Q4).
 # - Values: Number of samples for each actual-predicted pair.
 ,Q1,Q2,Q3,Q4
-Q1,4031,313,296,415
-Q2,182,4705,0,353
-Q3,136,117,3940,252
-Q4,317,120,339,3277
+Q1,3585,708,347,415
+Q2,92,4795,353,0
+Q3,136,117,3875,317
+Q4,523,120,506,2904

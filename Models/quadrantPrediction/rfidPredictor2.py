@@ -14,7 +14,7 @@ import os
 
 # Configure loggers
 data_logger = logging.getLogger("rfid_data")
-data_logger.setLevel(logging.INFO)
+data_logger.setLevel(logging.DEBUG)
 data_handler = logging.FileHandler("rfid_data.log")
 data_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 data_logger.addHandler(data_handler)
@@ -46,10 +46,15 @@ QUADRANT_MAP = {'Q1': 'Q1', 'Q2': 'Q2', 'Q3': 'Q3', 'Q4': 'Q4'}
 # Initialize CSV log file with headers if it doesn't exist
 log_file = 'live_predictions.csv'
 if not os.path.exists(log_file):
-    pd.DataFrame(columns=[
-        'log_time', 'timestamp', 'reader', 'antenna', 'epc',
-        'predicted_quadrant', 'confidence'
-    ]).to_csv(log_file, index=False)
+    try:
+        pd.DataFrame(columns=[
+            'log_time', 'timestamp', 'reader', 'antenna', 'epc',
+            'predicted_quadrant', 'confidence'
+        ]).to_csv(log_file, index=False)
+        data_logger.info(f"Initialized {log_file} with headers.")
+    except Exception as e:
+        data_logger.error(f"Failed to initialize {log_file}: {str(e)}")
+        sys.exit(1)
 
 # Process tag data for prediction
 def process_tag_data(row):
@@ -76,10 +81,10 @@ def process_tag_data(row):
         y_pred = model.predict(X_scaled)[0]
         confidence = float(np.max(model.predict_proba(X_scaled)[0]))
         quadrant = QUADRANT_MAP.get(str(y_pred), 'Unknown')
-        prediction_logger.info(quadrant)
+        prediction_logger.info(f"Predicted quadrant: {quadrant}, confidence: {confidence}, EPC: {row.get('EPC', 'unknown')}")
         return quadrant, confidence
     except Exception as e:
-        data_logger.error(f"Error in prediction for EPC {row.get('EPC')}: {str(e)}")
+        data_logger.error(f"Error in prediction for EPC {row.get('EPC', 'unknown')}: {str(e)}")
         return 'Unknown', 0.0
 
 # Async tag processor
@@ -97,28 +102,52 @@ async def process_tags():
                 pass
 
             if not tags:
+                data_logger.debug("No tags in queue, waiting...")
                 await asyncio.sleep(0.1)
                 continue
 
+            data_logger.info(f"Received {len(tags)} tags for processing.")
             df = pd.DataFrame(tags)
+            data_logger.debug(f"Raw DataFrame: {df.to_dict(orient='records')}")
+
             if df.empty or 'AntennaID' not in df.columns or 'ImpinjPeakRSSI' not in df.columns:
+                data_logger.warning("DataFrame empty or missing required columns (AntennaID, ImpinjPeakRSSI).")
+                await asyncio.sleep(0.1)
+                continue
+
+            # Validate AntennaID
+            if not df['AntennaID'].isin([1, 2, 3, 4]).all():
+                data_logger.warning(f"Invalid AntennaID values: {df['AntennaID'].unique()}")
+                await asyncio.sleep(0.1)
+                continue
+
+            # Validate RSSI range
+            invalid_rssi = (df['ImpinjPeakRSSI'] < -100) | (df['ImpinjPeakRSSI'] > -30)
+            if invalid_rssi.any():
+                data_logger.debug(f"Invalid RSSI values: {df[invalid_rssi][['EPC', 'ImpinjPeakRSSI']].to_dict(orient='records')}")
+                df = df[~invalid_rssi]
+
+            if df.empty:
+                data_logger.warning("No valid tags after RSSI filtering.")
                 await asyncio.sleep(0.1)
                 continue
 
             df['timestamp'] = (df['LastSeen'] / 1000000).round(3)
-            df['time_window'] = (df['LastSeen'] / 1000000 // 0.5) * 0.5
+            df['time_window'] = (df['LastSeen'] / 1000000 // 1.0) * 1.0
+
+            data_logger.debug(f"DataFrame with timestamps: {df[['EPC', 'AntennaID', 'ImpinjPeakRSSI', 'timestamp', 'time_window']].to_dict(orient='records')}")
 
             pivoted = df.pivot_table(
                 index='time_window',
                 columns='AntennaID',
-                values=['ImpinjPeakRSSI'],
+                values='ImpinjPeakRSSI',
                 aggfunc='mean'
             ).reset_index()
 
-            pivoted.columns = [
-                f'rssi_{col[1]}' if col[0] == 'ImpinjPeakRSSI' else col
-                for col in pivoted.columns
-            ]
+            # Flatten column names
+            pivoted.columns = ['time_window'] + [f'rssi_{int(col)}' for col in pivoted.columns[1:]]
+            data_logger.debug(f"Pivoted DataFrame: {pivoted.to_dict(orient='records')}")
+
             for i in range(1, 5):
                 rssi_col = f'rssi_{i}'
                 if rssi_col not in pivoted.columns:
@@ -127,24 +156,41 @@ async def process_tags():
 
             epc_map = df.groupby('time_window')['EPC'].last().to_dict()
             pivoted['EPC'] = pivoted['time_window'].map(epc_map)
+            data_logger.debug(f"EPC mapping: {epc_map}")
 
+            if pivoted['EPC'].isna().all():
+                data_logger.warning("No valid EPCs mapped to time windows.")
+                await asyncio.sleep(0.1)
+                continue
+
+            data_logger.info(f"Processing {len(pivoted)} pivoted rows.")
             log_data = []
             for _, row in pivoted.iterrows():
-                if row[['rssi_1', 'rssi_2', 'rssi_3', 'rssi_4']].eq(-80.0).sum() > 3:
+                if pd.isna(row['EPC']):
+                    data_logger.debug(f"Skipping row with missing EPC: {row.to_dict()}")
                     continue
+                rssi_values = row[['rssi_1', 'rssi_2', 'rssi_3', 'rssi_4']]
+                if rssi_values.eq(-80.0).sum() >= 1:
+                    data_logger.debug(f"Allowing row with {rssi_values.eq(-80.0).sum()} default RSSI values: {rssi_values.to_dict()}")
                 quadrant, confidence = process_tag_data(row)
                 log_data.append({
                     'log_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'timestamp': row['time_window'] * 1000,
                     'reader': 'reader1',
                     'antenna': 0,
-                    'epc': row['EPC'],
+                    'epc': str(row['EPC']),  # Ensure string
                     'predicted_quadrant': quadrant,
                     'confidence': confidence
                 })
 
             if log_data:
-                pd.DataFrame(log_data).to_csv(log_file, mode='a', header=False, index=False)
+                try:
+                    pd.DataFrame(log_data).to_csv(log_file, mode='a', header=False, index=False)
+                    data_logger.info(f"Appended {len(log_data)} predictions to {log_file}")
+                except Exception as e:
+                    data_logger.error(f"Error writing to {log_file}: {str(e)}")
+            else:
+                data_logger.warning("No valid predictions to log.")
         except Exception as e:
             data_logger.error(f"Error processing tags: {str(e)}")
         await asyncio.sleep(0.1)
@@ -152,24 +198,41 @@ async def process_tags():
 @app.post("/rfid-data")
 async def receive_rfid_data(payload: Dict):
     try:
+        data_logger.debug(f"Received payload: {payload}")
         tags = payload.get('tag_reads', [])
         if not tags:
+            data_logger.info("No tags received in payload.")
             return {"status": "success", "message": "No tags received"}
 
+        valid_tags = []
         for tag in tags:
             antenna_id = tag.get('antennaPort', tag.get('AntennaPort', tag.get('antenna_id', tag.get('AntennaID', 0))))
             rssi = float(tag.get('rssi', tag.get('peakRssi', tag.get('PeakRSSI', -80.0))))
+            epc = tag.get('epc', tag.get('EPC', ''))
+            # Handle string representation of byte string
+            if isinstance(epc, str) and epc.startswith("b'") and epc.endswith("'"):
+                epc = epc[2:-1]  # Strip b' and '
+            elif isinstance(epc, bytes):
+                epc = epc.decode('utf-8', errors='ignore')
             if not -100 <= rssi <= -30:
+                data_logger.debug(f"Invalid RSSI {rssi} for tag {epc}, skipping.")
+                continue
+            if not isinstance(antenna_id, int) or antenna_id not in [1, 2, 3, 4]:
+                data_logger.debug(f"Invalid AntennaID {antenna_id} for tag {epc}, skipping.")
                 continue
             tag_data = {
                 'AntennaID': int(antenna_id),
-                'EPC': tag.get('epc', tag.get('EPC', '')),
+                'EPC': epc,
                 'LastSeen': tag.get('firstSeenTimestamp', tag.get('timestamp', int(datetime.now().timestamp() * 1000))),
                 'ImpinjPeakRSSI': rssi
             }
+            valid_tags.append(tag_data)
             tag_queue.put(tag_data)
-        return {"status": "success", "message": f"Received {len(tags)} tags"}
+
+        data_logger.info(f"Queued {len(valid_tags)} valid tags out of {len(tags)} received.")
+        return {"status": "success", "message": f"Received {len(tags)} tags, queued {len(valid_tags)}"}
     except Exception as e:
+        data_logger.error(f"Error processing RFID data: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Error processing RFID data: {str(e)}")
 
 def is_port_in_use(port):

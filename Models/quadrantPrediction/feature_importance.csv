@@ -2,14 +2,15 @@
 # This file shows the importance of each feature in the Random Forest model.
 # - Feature: The RSSI feature for each antenna (1-4) or RSSI difference.
 # - Importance: The relative importance score (higher means more contribution to quadrant prediction).
-# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or 'A1-A2'/'A3-A4'/'A1-A4'/'A2-A3'/'A1-A3' for differences.
+# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or 'A1-A2'/'A3-A4'/'A1-A4'/'A2-A3'/'A1-A3'/'A4-A2' for differences.
 Feature,Importance,Antenna_Position
-rssi_3,0.35333333333333333,"A3=[15,15]"
-rssi_2,0.26,"A2=[0,15]"
-rssi_diff_2_3,0.17333333333333334,A2-A3
-rssi_1,0.10666666666666667,"A1=[0,0]"
-rssi_4,0.08,"A4=[15,0]"
-rssi_diff_1_2,0.013333333333333334,A1-A2
-rssi_diff_3_4,0.013333333333333334,A3-A4
+rssi_3,0.29,"A3=[15,15]"
+rssi_2,0.21,"A2=[0,15]"
+rssi_diff_2_3,0.18,A2-A3
+rssi_4,0.13,"A4=[15,0]"
+rssi_1,0.12,"A1=[0,0]"
+rssi_diff_1_2,0.03,A1-A2
+rssi_diff_3_4,0.03,A3-A4
+rssi_diff_4_2,0.01,A4-A2
 rssi_diff_1_4,0.0,A1-A4
 rssi_diff_1_3,0.0,A1-A3
