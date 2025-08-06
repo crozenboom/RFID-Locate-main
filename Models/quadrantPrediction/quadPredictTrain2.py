@@ -1,352 +1,243 @@
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 from imblearn.over_sampling import SMOTE
 import joblib
 import os
-from time import time
+import time
 from datetime import datetime
+import logging
 
-# Define quadrant mapping function
+# Configure logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 def coordinates_to_quadrant(x, y):
-    """Map x, y coordinates to quadrants in a 15x15 ft grid."""
     if x < 7.5 and y < 7.5:
-        return 'Q1'  # Bottom-left
+        return 'Q1'
     elif x < 7.5 and y >= 7.5:
-        return 'Q2'  # Top-left
+        return 'Q2'
     elif x >= 7.5 and y >= 7.5:
-        return 'Q3'  # Top-right
+        return 'Q3'
     else:
-        return 'Q4'  # Bottom-right
+        return 'Q4'
 
-# Parse quadrant from filename
 def parse_quadrant_from_filename(filename):
-    """Extract quadrant from filename like quad1.csv, quadz1_train.csv, or Test8-X.csv."""
-    base = os.path.splitext(os.path.basename(filename))[0].lower()
-    if base.startswith('quad') or base.startswith('quadz'):
-        quadrant_num = base.replace('quad', '').replace('z', '').replace('_train', '').replace('_test', '')
-        if quadrant_num in ['1', '2', '3', '4']:
-            return f'Q{quadrant_num}'
-    elif base.startswith('test8-'):
-        test_num = int(base.replace('test8-', ''))
-        coordinates = {
-            1: (2, 5), 2: (2, 8), 3: (2, 11), 4: (2, 14),
-            5: (5, 5), 6: (5, 8), 7: (5, 11), 8: (5, 14),
-            9: (8, 5), 10: (8, 8), 11: (8, 11), 12: (8, 14),
-            13: (11, 5), 14: (11, 8), 15: (11, 11), 16: (11, 14)
-        }
-        if test_num in coordinates:
-            x, y = coordinates[test_num]
-            return coordinates_to_quadrant(x, y)
-    print(f"Warning: Invalid filename {filename}, expecting quad1.csv, quadz1_train.csv, or Test8-X.csv.")
+    test_positions = {
+        'Test8-1.csv': (2, 5), 'Test8-2.csv': (5, 2), 'Test8-3.csv': (5, 5), 'Test8-4.csv': (2, 2),
+        'Test8-5.csv': (2, 10), 'Test8-6.csv': (5, 13), 'Test8-7.csv': (5, 10), 'Test8-8.csv': (2, 13),
+        'Test8-9.csv': (10, 10), 'Test8-10.csv': (13, 13), 'Test8-11.csv': (13, 10), 'Test8-12.csv': (10, 13),
+        'Test8-13.csv': (10, 5), 'Test8-14.csv': (13, 2), 'Test8-15.csv': (13, 5), 'Test8-16.csv': (10, 2)
+    }
+    fname = os.path.basename(filename).lower()
+    if fname.startswith('quad') or fname.startswith('quadz'):
+        try:
+            quad_num = int(''.join(filter(str.isdigit, fname)))
+            return f'Q{quad_num}' if 1 <= quad_num <= 4 else None
+        except ValueError:
+            logger.warning(f"Could not parse quadrant from filename: {filename}")
+            return None
+    elif fname in test_positions:
+        x, y = test_positions[fname]
+        return coordinates_to_quadrant(x, y)
+    logger.warning(f"Unknown filename format: {filename}")
     return None
 
-# Load and preprocess data
 def load_and_preprocess_data(file_paths):
-    """Load and preprocess RFID data from CSV files."""
-    data_frames = []
-    
+    all_data = []
+    rssi_stats = []
     for file_path, quadrant in file_paths:
         if not os.path.exists(file_path):
-            print(f"Error: File not found: {file_path}")
+            logger.warning(f"File not found: {file_path}")
             continue
-        print(f"Processing file: {file_path}")
-        try:
-            df = pd.read_csv(file_path)
-            # Convert ISO timestamp to Unix seconds if present
-            if 'timestamp' in df.columns and df['timestamp'].dtype == 'object':
-                try:
-                    df['timestamp'] = pd.to_datetime(df['timestamp']).astype(int) / 10**9
-                except Exception as e:
-                    print(f"Error converting timestamp in {file_path}: {str(e)}")
-                    continue
-            # Log and clean data
-            if 'rssi' in df.columns:
-                print(f"RSSI range in {file_path}: {df['rssi'].min()} to {df['rssi'].max()}")
-                outliers_rssi = (df['rssi'] < -100) | (df['rssi'] > -30)
-                print(f"Outliers in rssi (<-100 or >-30 dBm) in {file_path}: {outliers_rssi.sum()}")
-                df.loc[outliers_rssi, 'rssi'] = np.nan
-            # Validate quadrant from filename
-            parsed_quadrant = parse_quadrant_from_filename(file_path)
-            if parsed_quadrant is None or parsed_quadrant != quadrant:
-                print(f"Skipping {file_path}: Filename does not match expected quadrant {quadrant}.")
+        df = pd.read_csv(file_path)
+        parsed_quadrant = parse_quadrant_from_filename(file_path)
+        if parsed_quadrant != quadrant:
+            logger.warning(f"Quadrant mismatch for {file_path}: expected {quadrant}, got {parsed_quadrant}")
+            continue
+        if 'timestamp' in df.columns and df['timestamp'].dtype == 'object':
+            try:
+                df['timestamp'] = pd.to_datetime(df['timestamp']).astype(np.int64) / 10**9
+            except Exception as e:
+                logger.error(f"Error converting timestamps in {file_path}: {e}")
                 continue
-            # Pivot to include only rssi
-            pivoted = df.pivot_table(
-                index='timestamp',
-                columns='antenna',
-                values=['rssi'],
-                aggfunc='mean'
-            )
-            pivoted.columns = [f'rssi_{col[1]}' for col in pivoted.columns]
-            pivoted = pivoted.reset_index()
-            # Fill NaNs with mean for RSSI features
-            for col in pivoted.columns:
-                if col.startswith('rssi_'):
-                    pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
-            # Compute RSSI difference features
-            pivoted['rssi_diff_1_2'] = pivoted['rssi_1'] - pivoted['rssi_2']
-            pivoted['rssi_diff_3_4'] = pivoted['rssi_3'] - pivoted['rssi_4']
-            pivoted['rssi_diff_1_4'] = pivoted['rssi_1'] - pivoted['rssi_4']
-            pivoted['rssi_diff_2_3'] = pivoted['rssi_2'] - pivoted['rssi_3']
-            pivoted['rssi_diff_1_3'] = pivoted['rssi_1'] - pivoted['rssi_3']
-            pivoted['rssi_diff_4_2'] = pivoted['rssi_4'] - pivoted['rssi_2']
-            # Fill NaNs for difference features
-            for col in ['rssi_diff_1_2', 'rssi_diff_3_4', 'rssi_diff_1_4', 'rssi_diff_2_3', 'rssi_diff_1_3', 'rssi_diff_4_2']:
+        if 'rssi' not in df.columns or 'antenna' not in df.columns:
+            logger.warning(f"Missing required columns in {file_path}")
+            continue
+        invalid_rssi = (df['rssi'] < -100) | (df['rssi'] > -30)
+        if invalid_rssi.any():
+            logger.debug(f"Found {invalid_rssi.sum()} invalid RSSI values in {file_path}")
+            df.loc[invalid_rssi, 'rssi'] = np.nan
+        pivoted = df.pivot_table(index='timestamp', columns='antenna', values='rssi', aggfunc='mean').reset_index()
+        pivoted.columns = ['timestamp'] + [f'rssi_{int(col)}' for col in pivoted.columns[1:]]
+        
+        # Compute mean and std for each antenna
+        for i in range(1, 5):
+            rssi_col = f'rssi_{i}'
+            if rssi_col in pivoted.columns:
+                mean_rssi = pivoted[rssi_col].mean()
+                std_rssi = pivoted[rssi_col].std()
+                rssi_stats.append({
+                    'file': os.path.basename(file_path),
+                    'antenna': i,
+                    'mean_rssi': mean_rssi if not pd.isna(mean_rssi) else -80.0,
+                    'std_rssi': std_rssi if not pd.isna(std_rssi) else 0.0
+                })
+                logger.debug(f"{file_path} - Antenna {i}: mean_rssi={mean_rssi:.2f}, std_rssi={std_rssi:.2f}")
+        
+        for i in range(1, 5):
+            rssi_col = f'rssi_{i}'
+            if rssi_col not in pivoted.columns:
+                pivoted[rssi_col] = np.nan
+            pivoted[rssi_col] = pivoted[rssi_col].fillna(pivoted[rssi_col].mean())
+        pivoted['rssi_diff_1_2'] = pivoted['rssi_1'] - pivoted['rssi_2']
+        pivoted['rssi_diff_3_4'] = pivoted['rssi_3'] - pivoted['rssi_4']
+        pivoted['rssi_diff_1_4'] = pivoted['rssi_1'] - pivoted['rssi_4']
+        pivoted['rssi_diff_2_3'] = pivoted['rssi_2'] - pivoted['rssi_3']
+        pivoted['rssi_diff_1_3'] = pivoted['rssi_1'] - pivoted['rssi_3']
+        pivoted['rssi_diff_4_2'] = pivoted['rssi_4'] - pivoted['rssi_2']
+        for col in pivoted.columns:
+            if col.startswith('rssi_diff'):
                 pivoted[col] = pivoted[col].fillna(pivoted[col].mean())
-            # Drop rows with excessive NaNs
-            nan_threshold = len(pivoted.columns) * 0.1
-            if pivoted.isna().sum().max() > nan_threshold:
-                print(f"Warning: Dropping rows with excessive NaNs in {file_path}.")
-                pivoted = pivoted.dropna()
-            # Check for remaining NaNs
-            nan_counts = pivoted.isna().sum()
-            print(f"NaN counts in {file_path} after imputation: {nan_counts[nan_counts > 0].to_dict()}")
-            if pivoted.empty:
-                print(f"Error: No data remains in {file_path} after preprocessing.")
-                continue
-            if pivoted.isna().any().any():
-                print(f"Warning: Remaining NaNs in {file_path} after imputation. Dropping rows.")
-                pivoted = pivoted.dropna()
-            if pivoted.empty:
-                print(f"Error: All rows dropped in {file_path} due to NaNs.")
-                continue
-            pivoted['quadrant'] = quadrant
-            data_frames.append(pivoted)
-        except Exception as e:
-            print(f"Error processing {file_path}: {str(e)}")
+        nan_threshold = int(0.1 * len(pivoted.columns))
+        nan_counts = pivoted.isna().sum(axis=1)
+        pivoted = pivoted[nan_counts <= nan_threshold]
+        if pivoted.isna().any().any():
+            logger.debug(f"Dropping {pivoted.isna().any(axis=1).sum()} rows with NaNs in {file_path}")
+            pivoted = pivoted.dropna()
+        if pivoted.empty:
+            logger.warning(f"No valid data after preprocessing in {file_path}")
             continue
-    
-    if not data_frames:
-        print("Error: No valid data files loaded.")
+        pivoted['quadrant'] = quadrant
+        all_data.append(pivoted)
+    if not all_data:
+        logger.error("No valid data loaded")
         return None
+    combined = pd.concat(all_data, ignore_index=True)
+    logger.info(f"Combined dataset shape: {combined.shape}")
     
-    combined = pd.concat(data_frames, ignore_index=True)
-    print(f"Combined dataset size: {len(combined)} rows")
+    # Save RSSI stats to CSV
+    pd.DataFrame(rssi_stats).to_csv('rssi_stats.csv', index=False)
+    logger.info("Saved RSSI mean and std to rssi_stats.csv")
+    
     return combined
 
-# Main processing
 def main():
-    """Main function to load data, train model, and evaluate on test data."""
-    start_time = time()
-    # Base path for files
     base_path = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/quadTesting/'
     test8_path = '/Users/calebrozenboom/Documents/RFID_Project/RFID-Locate-main/Testing/Test8/'
-    # Training file paths (dynamic + static Test 8 data, exclude Test8-13.csv)
     train_files = [
         (f'{base_path}quad1_train.csv', 'Q1'),
-        (f'{base_path}quad2_train.csv', 'Q2'),
-        (f'{base_path}quad3_train.csv', 'Q3'),
-        (f'{base_path}quad4_train.csv', 'Q4'),
         (f'{base_path}quadz1_train.csv', 'Q1'),
+        (f'{base_path}quad2_train.csv', 'Q2'),
         (f'{base_path}quadz2_train.csv', 'Q2'),
+        (f'{base_path}quad3_train.csv', 'Q3'),
         (f'{base_path}quadz3_train.csv', 'Q3'),
+        (f'{base_path}quad4_train.csv', 'Q4'),
         (f'{base_path}quadz4_train.csv', 'Q4'),
-        # Test 8 static data (12 files, exclude Test8-13.csv)
-        (f'{test8_path}Test8-1.csv', 'Q1'),  # (2, 5)
-        (f'{test8_path}Test8-2.csv', 'Q2'),  # (2, 8)
-        (f'{test8_path}Test8-3.csv', 'Q2'),  # (2, 11)
-        (f'{test8_path}Test8-6.csv', 'Q2'),  # (5, 8)
-        (f'{test8_path}Test8-7.csv', 'Q2'),  # (5, 11)
-        (f'{test8_path}Test8-10.csv', 'Q3'), # (8, 8)
-        (f'{test8_path}Test8-11.csv', 'Q3'), # (8, 11)
-        (f'{test8_path}Test8-12.csv', 'Q3'), # (8, 14)
-        (f'{test8_path}Test8-14.csv', 'Q3'), # (11, 8)
-        (f'{test8_path}Test8-15.csv', 'Q3'), # (11, 11)
-        (f'{test8_path}Test8-16.csv', 'Q3'), # (11, 14)
-        (f'{test8_path}Test8-9.csv', 'Q4'),  # (8, 5)
+        (f'{test8_path}Test8-2.csv', 'Q1'),
+        (f'{test8_path}Test8-7.csv', 'Q3'),
+        (f'{test8_path}Test8-10.csv', 'Q3'),
+        (f'{test8_path}Test8-14.csv', 'Q4')
     ]
-    # Test file paths (dynamic + static Test 8 data, include Test8-13.csv)
     test_files = [
         (f'{base_path}quad1_test.csv', 'Q1'),
-        (f'{base_path}quad2_test.csv', 'Q2'),
-        (f'{base_path}quad3_test.csv', 'Q3'),
-        (f'{base_path}quad4_test.csv', 'Q4'),
         (f'{base_path}quadz1_test.csv', 'Q1'),
+        (f'{base_path}quad2_test.csv', 'Q2'),
         (f'{base_path}quadz2_test.csv', 'Q2'),
+        (f'{base_path}quad3_test.csv', 'Q3'),
         (f'{base_path}quadz3_test.csv', 'Q3'),
+        (f'{base_path}quad4_test.csv', 'Q4'),
         (f'{base_path}quadz4_test.csv', 'Q4'),
-        # Test 8 static data (4 files, include Test8-13.csv)
-        (f'{test8_path}Test8-5.csv', 'Q1'),  # (5, 5)
-        (f'{test8_path}Test8-4.csv', 'Q2'),  # (2, 14)
-        (f'{test8_path}Test8-8.csv', 'Q2'),  # (5, 14)
-        (f'{test8_path}Test8-13.csv', 'Q4'), # (11, 5)
+        (f'{test8_path}Test8-1.csv', 'Q1'),
+        (f'{test8_path}Test8-9.csv', 'Q3'),
+        (f'{test8_path}Test8-13.csv', 'Q4'),
+        (f'{test8_path}Test8-15.csv', 'Q4')
     ]
-    
-    # Load training data
-    print("Loading training data...")
     train_data = load_and_preprocess_data(train_files)
-    if train_data is None or train_data.empty:
-        print("Error: Failed to load training data. Exiting.")
-        return
-    
-    # Load test data
-    print("\nLoading test data...")
     test_data = load_and_preprocess_data(test_files)
-    if test_data is None or test_data.empty:
-        print("Error: Failed to load test data. Exiting.")
+    if train_data is None or test_data is None:
+        logger.error("Failed to load data")
         return
-    
-    # Log sample counts per quadrant
-    print("\nTraining sample counts per quadrant:")
-    print(train_data['quadrant'].value_counts())
-    print("\nTest sample counts per quadrant:")
-    print(test_data['quadrant'].value_counts())
-    
-    # Define features (10 features)
-    features = [
-        'rssi_1', 'rssi_2', 'rssi_3', 'rssi_4',
-        'rssi_diff_1_2', 'rssi_diff_3_4', 'rssi_diff_1_4', 'rssi_diff_2_3', 'rssi_diff_1_3', 'rssi_diff_4_2'
-    ]
-    target = 'quadrant'
-    
-    # Verify no NaNs
-    for dataset, name in [(train_data, 'training'), (test_data, 'test')]:
-        nan_counts = dataset[features].isna().sum()
-        print(f"NaN counts in {name} features: {nan_counts[nan_counts > 0].to_dict()}")
-        if dataset[features].isna().any().any():
-            print(f"Warning: Dropping rows with NaNs in {name} data.")
-            dataset = dataset.dropna(subset=features)
-    
-    # Prepare training and test sets
+    logger.info("Train quadrant counts:\n" + train_data['quadrant'].value_counts().to_string())
+    logger.info("Test quadrant counts:\n" + test_data['quadrant'].value_counts().to_string())
+    features = ['rssi_1', 'rssi_2', 'rssi_3', 'rssi_4', 'rssi_diff_1_2', 'rssi_diff_3_4',
+                'rssi_diff_1_4', 'rssi_diff_2_3', 'rssi_diff_1_3', 'rssi_diff_4_2']
     X_train = train_data[features]
-    y_train = train_data[target]
+    y_train = train_data['quadrant']
     X_test = test_data[features]
-    y_test = test_data[target]
-    
-    # Apply SMOTE to balance training data
-    print("\nApplying SMOTE to balance training data...")
-    smote = SMOTE(random_state=42, sampling_strategy={'Q1': 6000, 'Q2': 6000, 'Q3': 6000, 'Q4': 6000})
+    y_test = test_data['quadrant']
+    if X_train.isna().any().any() or X_test.isna().any().any():
+        logger.debug(f"Dropping rows with NaNs: Train={X_train.isna().any(axis=1).sum()}, Test={X_test.isna().any(axis=1).sum()}")
+        X_train = X_train.dropna()
+        y_train = y_train[X_train.index]
+        X_test = X_test.dropna()
+        y_test = y_test[X_test.index]
+    smote = SMOTE(sampling_strategy={'Q1': 6000, 'Q2': 6000, 'Q3': 6000, 'Q4': 6000}, random_state=42)
     X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train)
-    print("Balanced training sample counts per quadrant:")
-    print(pd.Series(y_train_balanced).value_counts())
-    
-    # Scale features
+    logger.info("Balanced train quadrant counts:\n" + pd.Series(y_train_balanced).value_counts().to_string())
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train_balanced)
     X_test_scaled = scaler.transform(X_test)
-    
-    # Train Random Forest with GridSearchCV
-    print("\nTraining Random Forest...")
-    rfc = RandomForestClassifier(random_state=42, class_weight='balanced')
     param_grid = {
-        'n_estimators': [100, 150],
-        'max_depth': [1],
-        'min_samples_split': [250, 300],
-        'min_samples_leaf': [200, 250, 300],
-        'max_features': ['sqrt'],
-        'max_samples': [0.2, 0.3]
+        'n_estimators': [100, 150], 'max_depth': [1], 'min_samples_split': [250, 300],
+        'min_samples_leaf': [200, 250, 300], 'max_features': ['sqrt'], 'max_samples': [0.2, 0.3]
     }
+    rf = RandomForestClassifier(random_state=42, class_weight='balanced')
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    grid_search = GridSearchCV(rfc, param_grid, cv=cv, scoring='f1_weighted', n_jobs=-1, verbose=2)
+    grid_search = GridSearchCV(rf, param_grid, cv=cv, scoring='f1_weighted', n_jobs=-1)
+    start_time = time.time()
     grid_search.fit(X_train_scaled, y_train_balanced)
-    
-    # Best model
+    logger.info(f"Training time: {time.time() - start_time:.2f} seconds")
+    logger.info(f"Best parameters: {grid_search.best_params_}")
     model = grid_search.best_estimator_
-    print(f"Best parameters: {grid_search.best_params_}")
-    print(f"Training time: {(time() - start_time) / 60:.2f} minutes")
-    
-    # Evaluate on training set
     y_train_pred = model.predict(X_train_scaled)
-    train_accuracy = accuracy_score(y_train_balanced, y_train_pred)
-    print(f"\nTraining accuracy: {train_accuracy:.4f}")
-    print("\nTraining classification report:")
-    print(classification_report(y_train_balanced, y_train_pred, target_names=['Q1', 'Q2', 'Q3', 'Q4']))
-    
-    # Evaluate on test set
     y_test_pred = model.predict(X_test_scaled)
-    test_accuracy = accuracy_score(y_test, y_test_pred)
-    print(f"\nTest accuracy: {test_accuracy:.4f}")
-    print("\nTest classification report:")
-    print(classification_report(y_test, y_test_pred, target_names=['Q1', 'Q2', 'Q3', 'Q4']))
-    
-    # Save live predictions (for evaluation, exclude Actual_Quadrant)
-    live_predictions = pd.DataFrame({
-        'Timestamp': test_data['timestamp'],
-        'Predicted_Quadrant': y_test_pred
-    })
-    live_predictions_file = 'live_predictions.csv'
-    with open(live_predictions_file, 'w') as f:
-        f.write(
-            "# Live Predictions\n"
-            "# This file contains predicted quadrants for test data.\n"
-            "# - Timestamp: Time of the RFID reading.\n"
-            "# - Predicted_Quadrant: Predicted quadrant by the model.\n"
-        )
-    live_predictions.to_csv(live_predictions_file, mode='w', index=False)
-    print(f"Live predictions saved to: {os.path.abspath(live_predictions_file)}")
-    
-    # Per-quadrant accuracy
-    quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
-    results = []
-    for q in quadrants:
-        mask = y_test == q
+    logger.info("Train accuracy: " + str(accuracy_score(y_train_balanced, y_train_pred)))
+    logger.info("Train classification report:\n" + classification_report(y_train_balanced, y_train_pred))
+    logger.info("Test accuracy: " + str(accuracy_score(y_test, y_test_pred)))
+    logger.info("Test classification report:\n" + classification_report(y_test, y_test_pred))
+    pd.DataFrame({'Timestamp': test_data['timestamp'], 'Predicted_Quadrant': y_test_pred}).to_csv(
+        'live_predictions.csv', index=False,
+        header=['# Live Predictions', '# This file contains predicted quadrants for test data.',
+                '# - Timestamp: Time of the RFID reading.', '# - Predicted_Quadrant: Predicted quadrant by the model.']
+    )
+    quadrant_accuracies = []
+    for quadrant in ['Q1', 'Q2', 'Q3', 'Q4']:
+        mask = y_test == quadrant
         if mask.sum() > 0:
             acc = accuracy_score(y_test[mask], y_test_pred[mask])
-            print(f"Accuracy for {q}: {acc:.4f}")
-            results.append({'Quadrant': q, 'Accuracy': acc})
-    
-    # Save results
-    results_df = pd.DataFrame(results)
-    results_file = 'quadrant_results.csv'
-    with open(results_file, 'w') as f:
-        f.write(
-            "# Quadrant Results\n"
-            "# This file contains quadrant accuracies.\n"
-            "# - Quadrant: Q1 (x<7.5, y<7.5), Q2 (x<7.5, y>=7.5), Q3 (x>=7.5, y>=7.5), Q4 (x>=7.5, y<7.5).\n"
-            "# - Accuracy: Prediction accuracy for each quadrant (0 to 1).\n"
-        )
-    results_df.to_csv(results_file, mode='a', index=False)
-    print(f"Results saved to: {os.path.abspath(results_file)}")
-    
-    # Feature importance
-    importances = model.feature_importances_
-    antenna_positions = {
-        'rssi_1': 'A1=[0,0]', 'rssi_2': 'A2=[0,15]', 'rssi_3': 'A3=[15,15]', 'rssi_4': 'A4=[15,0]',
-        'rssi_diff_1_2': 'A1-A2', 'rssi_diff_3_4': 'A3-A4', 'rssi_diff_1_4': 'A1-A4', 'rssi_diff_2_3': 'A2-A3', 
-        'rssi_diff_1_3': 'A1-A3', 'rssi_diff_4_2': 'A4-A2'
-    }
-    feature_imp_df = pd.DataFrame({
+            quadrant_accuracies.append({'Quadrant': quadrant, 'Accuracy': acc})
+    pd.DataFrame(quadrant_accuracies).to_csv(
+        'quadrant_results.csv', index=False,
+        header=['# Quadrant Results', '# This file contains quadrant accuracies.',
+                '# - Quadrant: Q1 (x<7.5, y<7.5), Q2 (x<7.5, y>=7.5), Q3 (x>=7.5, y>=7.5), Q4 (x>=7.5, y<7.5).',
+                '# - Accuracy: Prediction accuracy for each quadrant (0 to 1).']
+    )
+    feature_importance = pd.DataFrame({
         'Feature': features,
-        'Importance': importances,
-        'Antenna_Position': [antenna_positions[f] for f in features]
+        'Importance': model.feature_importances_,
+        'Antenna_Position': ['A1=[0,0]', 'A2=[0,15]', 'A3=[15,15]', 'A4=[15,0]', 'A1-A2', 'A3-A4', 'A1-A4', 'A2-A3', 'A1-A3', 'A4-A2']
     })
-    feature_imp_df = feature_imp_df.sort_values('Importance', ascending=False)
-    feature_imp_file = 'feature_importance.csv'
-    with open(feature_imp_file, 'w') as f:
-        f.write(
-            "# Feature Importance\n"
-            "# This file shows the importance of each feature in the Random Forest model.\n"
-            "# - Feature: The RSSI feature for each antenna (1-4) or RSSI difference.\n"
-            "# - Importance: The relative importance score (higher means more contribution to quadrant prediction).\n"
-            "# - Antenna_Position: The antenna's coordinates in the 15x15 ft grid (A1=[0,0], A2=[0,15], A3=[15,15], A4=[15,0]) or 'A1-A2'/'A3-A4'/'A1-A4'/'A2-A3'/'A1-A3'/'A4-A2' for differences.\n"
-        )
-    feature_imp_df.to_csv(feature_imp_file, mode='a', index=False)
-    print(f"Feature importance saved to: {os.path.abspath(feature_imp_file)}")
-    
-    # Confusion matrix
-    cm = confusion_matrix(y_test, y_test_pred, labels=quadrants)
-    cm_df = pd.DataFrame(cm, index=quadrants, columns=quadrants)
-    cm_file = 'confusion_matrix.csv'
-    with open(cm_file, 'w') as f:
-        f.write(
-            "# Confusion Matrix\n"
-            "# This file shows the confusion matrix for quadrant predictions.\n"
-            "# - Rows: Actual quadrants (Q1, Q2, Q3, Q4).\n"
-            "# - Columns: Predicted quadrants (Q1, Q2, Q3, Q4).\n"
-            "# - Values: Number of samples for each actual-predicted pair.\n"
-        )
-    cm_df.to_csv(cm_file, mode='a')
-    print(f"Confusion matrix saved to: {os.path.abspath(cm_file)}")
-    
-    # Save model and scaler
+    feature_importance.to_csv(
+        'feature_importance.csv', index=False,
+        header=['# Feature Importance', '# This file shows the importance of each feature in the Random Forest model.',
+                '# - Feature: The RSSI feature for each antenna (1-4) or RSSI difference.',
+                '# - Importance: The relative importance score (higher means more contribution to quadrant prediction).',
+                '# - Antenna_Position: The antenna\'s coordinates in the 15x15 ft grid or difference pair.']
+    )
+    cm = confusion_matrix(y_test, y_test_pred, labels=['Q1', 'Q2', 'Q3', 'Q4'])
+    pd.DataFrame(cm, index=['Q1', 'Q2', 'Q3', 'Q4'], columns=['Q1', 'Q2', 'Q3', 'Q4']).to_csv(
+        'confusion_matrix.csv',
+        header=['# Confusion Matrix', '# This file shows the confusion matrix for quadrant predictions.',
+                '# - Rows: Actual quadrants (Q1, Q2, Q3, Q4).', '# - Columns: Predicted quadrants (Q1, Q2, Q3, Q4).',
+                '# - Values: Number of samples for each actual-predicted pair.']
+    )
     joblib.dump(model, 'model_full_features.pkl')
     joblib.dump(scaler, 'scaler_full_features.pkl')
-    print(f"Model saved to: {os.path.abspath('model_full_features.pkl')}")
-    print(f"Scaler saved to: {os.path.abspath('scaler_full_features.pkl')}")
+    logger.info("Model and scaler saved to model_full_features.pkl and scaler_full_features.pkl")
 
 if __name__ == '__main__':
     main()
