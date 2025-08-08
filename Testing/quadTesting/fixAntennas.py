@@ -1,6 +1,6 @@
 import pandas as pd
 
-filename = "quad1_train.csv"
+filename = "quadz4_train.csv"
 df = pd.read_csv(filename)
 antenna = "antenna"
 if antenna not in df.columns:
