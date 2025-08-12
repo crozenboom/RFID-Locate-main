@@ -130,6 +130,6 @@ def process_rssi_buffer():
 # Main function to start the server
 if __name__ == "__main__":
     # Load calibration CSV (update path as needed)
-    load_calibration_csv("calibration.csv")
+    load_calibration_csv("center_test.csv")
     init_output_csv()
     uvicorn.run(app, host="0.0.0.0", port=8000)
