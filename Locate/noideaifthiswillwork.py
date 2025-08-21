@@ -29,61 +29,59 @@ print(f"Processing file: {input_file}")
 df = pd.read_csv(input_file)
 print(f"Loaded {len(df)} rows.")
 
+# Chunk size
+chunk_size = 10
+
 # List to hold outputs
 outputs = []
 
 group_num = 0
 
-# Process per channel
-for channel, channel_df in df.groupby('channel_index'):
+# Process in chunks of 10 rows
+for idx in range(0, len(df), chunk_size):
+    chunk = df.iloc[idx:idx + chunk_size]
     group_num += 1
     positions = []
     distances = []
-    print(f"\nProcessing Channel {channel} with {len(channel_df)} total reads")
+    print(f"\nProcessing Group {group_num} with {len(chunk)} reads")
     
     for ant in [1, 2, 3, 4]:
-        ant_df = channel_df[channel_df['antenna'] == ant]
-        if len(ant_df) < 3:
-            print(f"Antenna {ant} skipped: less than 3 reads")
+        ant_df = chunk[chunk['antenna'] == ant]
+        if len(ant_df) < 2:  # Reduced to 2 for unwrapping
+            print(f"Antenna {ant} skipped: less than 2 reads")
             continue
         
-        # Unwrap phases
+        # Get frequencies and phases
+        freqs = [get_frequency(ch) for ch in ant_df['channel_index']]
         phases = (ant_df['phase_angle'] / 4096.0) * 2 * math.pi
         unwrapped = np.unwrap(phases)
         
-        # Compute distance using multiple frequencies
-    freq_phase = list(zip(ant_df['channel_index'], unwrapped))
-    unique_channels = len(set(ant_df['channel_index']))
-    if unique_channels < 2:
-        print(f"Antenna {ant} skipped: less than 2 unique channels")
-        continue
-
-    pair_ds = []
-    for i in range(len(freq_phase)):
-        for j in range(i+1, len(freq_phase)):
-            f1, phi1 = freq_phase[i]
-            f2, phi2 = freq_phase[j]
-            delta_f = get_frequency(f2) - get_frequency(f1)
-            if delta_f == 0:
-                continue  # skip zero freq difference
-            delta_phi = phi2 - phi1
-            while delta_phi > math.pi:
-                delta_phi -= 2 * math.pi
-            while delta_phi < -math.pi:
-                delta_phi += 2 * math.pi
-            if delta_phi < 0:
-                delta_phi += 2 * math.pi
-            d_pair = (delta_phi * C) / (4 * math.pi * delta_f)
-            pair_ds.append(d_pair)
-
-    if pair_ds:
-        dist = np.mean(pair_ds)
+        # Sort by frequency
+        sorted_idx = np.argsort(freqs)
+        freqs = np.array(freqs)[sorted_idx]
+        unwrapped = unwrapped[sorted_idx]
+        
+        unique_freqs = len(set(freqs))
+        if unique_freqs < 2:
+            print(f"Antenna {ant} skipped: less than 2 unique frequencies")
+            continue
+        
+        # Linear fit: unwrapped phase vs frequency
+        slope, intercept = np.polyfit(freqs, unwrapped, 1)
+        
+        # Distance d = -slope * C / (4 * pi)
+        dist = -slope * C / (4 * math.pi)
+        
+        if dist < 0 or dist > 50:  # Filter invalid distances
+            print(f"Antenna {ant} skipped: invalid distance {dist:.2f} ft")
+            continue
+        
         print(f"Antenna {ant}: Distance={dist:.2f} ft")
         positions.append(ANTENNA_POSITIONS[ant])
         distances.append(dist)
     
     if len(positions) < 3:
-        print("Not enough antennas with sufficient reads. Skipping this channel.")
+        print("Not enough antennas with sufficient reads. Skipping this group.")
         outputs.append({
             'Group': group_num,
             'X': None,
@@ -100,8 +98,9 @@ for channel, channel_df in df.groupby('channel_index'):
     def residual(xy):
         return np.linalg.norm(positions - xy, axis=1) - distances
     
-    # Least squares trilateration
-    result = least_squares(residual, initial_guess)
+    # Least squares trilateration with bounds
+    bounds = ([0, 0], [15, 15])
+    result = least_squares(residual, initial_guess, bounds=bounds)
     
     if result.success:
         x, y = result.x
@@ -127,7 +126,7 @@ output_df.to_csv('maybelocation.csv', index=False)
 print("\nOutput saved to 'maybelocation.csv'.")
 
 # Plotting
-valid_points = [(d['X'], d['Y']) for d in outputs if d['Status'] == 'OK' and d['X'] is not None]
+valid_points = [(d['X'], d['Y']) for d in outputs if d['Status'] == 'OK' and d['X'] is not None and d['Y'] is not None]
 
 if valid_points:
     fig_static, ax_static = plt.subplots()

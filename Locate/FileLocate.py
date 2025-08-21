@@ -5,19 +5,49 @@ from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-# Constants
+# ===================== Kalman Filter (1D) =====================
+class Kalman1D:
+    """
+    Simple 1D Kalman filter for RSSI smoothing.
+    x: state estimate (filtered RSSI)
+    P: estimate covariance
+    Q: process variance (how fast the 'true' RSSI may drift)
+    R: measurement variance (how noisy the measurements are)
+    """
+    def __init__(self, initial_value: float, Q: float = 0.05, R: float = 2.0, initial_P: float = 1.0):
+        self.x = float(initial_value)
+        self.P = float(initial_P)
+        self.Q = float(Q)
+        self.R = float(R)
+
+    def update(self, z: float) -> float:
+        # Predict
+        self.P = self.P + self.Q
+        # Gain
+        K = self.P / (self.P + self.R)
+        # Correct
+        self.x = self.x + K * (float(z) - self.x)
+        # Update covariance
+        self.P = (1.0 - K) * self.P
+        return self.x
+
+# ====== Tunables for Kalman (good starting points; adjust as needed) ======
+KALMAN_Q = 0.05   # smaller for static tags, larger if tag moves
+KALMAN_R = 2.0    # larger when your RSSI environment is noisier
+
+# ===================== Your existing constants =====================
 RSSI0 = {
-    1: -50.877323,
-    2: -54.708955,
-    3: -56.277154,
-    4: -57.565217
+    1: -54.76140196,
+    2: -54.18993038,
+    3: -54.24585557,
+    4: -54.53863142
 }
 D0 = 10.60660172
 N_values = {
-    1: 1.959001199,
-    2: 2.348866427,
-    3: 2.013494858,
-    4: 0.87256434
+    1: 0.982954949,
+    2: 2.479294337,
+    3: 2.52394818,
+    4: 1.633127718
 }
 ANTENNA_POSITIONS = {
     1: np.array([0.0, 0.0]),
@@ -26,6 +56,7 @@ ANTENNA_POSITIONS = {
     4: np.array([0.0, 15.0])
 }
 
+# ===================== IO =====================
 # Get input file from command line or default to specified path
 if len(sys.argv) > 1:
     input_file = sys.argv[1]
@@ -35,31 +66,68 @@ else:
 print(f"Starting processing of file: {input_file}")
 
 # Read the CSV file
+# Expected columns: timestamp,reader,antenna,rssi,epc,phase_angle,channel_index,doppler_frequency
 df = pd.read_csv(input_file)
 print(f"Loaded {len(df)} rows from the CSV file.")
 
-# Chunk size
-chunk_size = 10
+# Make sure antenna is int-like and rssi is float
+if df['antenna'].dtype != np.int64 and df['antenna'].dtype != np.int32:
+    df['antenna'] = pd.to_numeric(df['antenna'], errors='coerce').astype('Int64')
+df['rssi'] = pd.to_numeric(df['rssi'], errors='coerce')
 
-# List to hold output data
+# Drop rows with missing essentials
+df = df.dropna(subset=['antenna', 'rssi']).copy()
+df['antenna'] = df['antenna'].astype(int)
+
+# ===================== Kalman filters per antenna =====================
+# Persist filters across all chunks so smoothing carries over time
+filters_by_antenna = {}
+
+def get_filter_for_antenna(ant: int, first_value: float) -> Kalman1D:
+    if ant not in filters_by_antenna:
+        filters_by_antenna[ant] = Kalman1D(
+            initial_value=first_value,
+            Q=KALMAN_Q,
+            R=KALMAN_R,
+            initial_P=1.0
+        )
+    return filters_by_antenna[ant]
+
+# ===================== Processing in chunks =====================
+chunk_size = 10
 outputs = []
 
-# Process the DataFrame in chunks of 10 rows
 for idx in range(0, len(df), chunk_size):
     chunk = df.iloc[idx:idx + chunk_size]
-    
-    # Compute average RSSI per antenna in this chunk
-    avg_rssi = chunk.groupby('antenna')['rssi'].mean().to_dict()
-    
-    # Available antennas with RSSI data
+
+    # Apply Kalman per-row, per-antenna (order-preserving)
+    # Collect filtered RSSI values per antenna for this chunk
+    filtered_values = {}  # ant -> list of filtered rssi
+
+    for _, row in chunk.iterrows():
+        ant = int(row['antenna'])
+        z = float(row['rssi'])
+
+        # Initialize filter for antenna if needed using the first measurement
+        kf = get_filter_for_antenna(ant, z)
+        z_filt = kf.update(z)
+
+        if ant not in filtered_values:
+            filtered_values[ant] = []
+        filtered_values[ant].append(z_filt)
+
+    # Compute average FILTERED RSSI per antenna for this chunk
+    avg_rssi = {ant: float(np.mean(vals)) for ant, vals in filtered_values.items()}
+
+    # Available antennas with positions
     avail_ants = [ant for ant in avg_rssi if ant in ANTENNA_POSITIONS]
-    
+
     group_num = (idx // chunk_size) + 1
-    
+
     print(f"\nProcessing group {group_num} (rows {idx+1} to {min(idx+chunk_size, len(df))})")
-    print(f"Average RSSI values: {avg_rssi}")
+    print(f"Average FILTERED RSSI values: {avg_rssi}")
     print(f"Available antennas: {avail_ants}")
-    
+
     if len(avail_ants) < 3:
         print("Not enough info to calculate location.")
         outputs.append({
@@ -69,32 +137,32 @@ for idx in range(0, len(df), chunk_size):
             'Status': 'not enough info to calculate'
         })
         continue
-    
-    # Prepare positions and distances
+
+    # Prepare positions and distances from FILTERED avg RSSI
     positions = []
     distances = []
     for ant in avail_ants:
         rssi = avg_rssi[ant]
-        N = N_values[ant]  # use the antenna-specific N
+        N = N_values[ant]  # antenna-specific path-loss exponent
         dist = D0 * (10 ** ((RSSI0[ant] - rssi) / (10 * N)))
-        print(f"Antenna {ant}: RSSI={rssi:.2f}, N={N:.6f}, Calculated distance={dist:.2f}")
+        print(f"Antenna {ant}: filtered RSSI={rssi:.2f}, N={N:.6f}, Calculated distance={dist:.2f}")
         positions.append(ANTENNA_POSITIONS[ant])
         distances.append(dist)
-    
+
     positions = np.array(positions)
     distances = np.array(distances)
-    
+
     # Initial guess: mean of antenna positions
     initial_guess = np.mean(positions, axis=0)
     print(f"Initial guess for location: {initial_guess}")
-    
+
     # Define residual function
     def residual(xy):
         return np.linalg.norm(positions - xy, axis=1) - distances
-    
+
     # Perform least squares optimization
     result = least_squares(residual, initial_guess)
-    
+
     if result.success:
         x, y = result.x
         print(f"Predicted location: X={x:.2f}, Y={y:.2f}")
@@ -113,12 +181,12 @@ for idx in range(0, len(df), chunk_size):
             'Status': 'failed to converge'
         })
 
-# Create output DataFrame and save to CSV
+# ===================== Save output =====================
 output_df = pd.DataFrame(outputs)
 output_df.to_csv('Coordinate Prediction.csv', index=False)
 print("\nProcessing complete. Output saved to 'Coordinate Prediction.csv'.")
 
-# Collect valid points for plotting
+# ===================== Plotting =====================
 valid_points = [(d['X'], d['Y']) for d in outputs if d['Status'] == 'OK' and d['X'] is not None and d['Y'] is not None]
 if not valid_points:
     print("No valid points to plot.")
@@ -138,7 +206,6 @@ else:
         ax_static.plot(pos[0], pos[1], 'ro', label=f'Ant {ant}')
     ax_static.legend()
 
-    # Plot all points connected by lines
     if valid_points:
         xs, ys = zip(*valid_points)
         ax_static.plot(xs, ys, 'b-', marker='o', label='Path')
