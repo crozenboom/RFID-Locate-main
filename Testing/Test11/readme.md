@@ -17,6 +17,16 @@
 - 45 on 15 off
 
 # Test11-4
-- same as test11-3 but turned antenna 45 degrees from 6 to 9 o clock
+- same as test11-3 but !!! turned antenna 45 degrees from 6 to 9 o clock !!!
 - at the end went back to 3 o clock
+
+# Test11-5
+- rotated antenna back to normal 
+- 8 points same height down middle line (range test)
+- center, 42 in from center, 102 in from center, and then 5 more 48 in apart each
+- last few reads at the break need to be scratched
+
+# Test11-6 
+- same as Test11-5 but on the ground
+- at the end tilted tag at 45 degrees toward antenna
 
