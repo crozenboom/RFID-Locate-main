@@ -9,7 +9,7 @@ b - antenna 4 (Laird S9028PCLJ)
 c - antenna 2 (Laird S9028PCRJ)
 d - small antenna (Laird S9025PL)
 e - small antenna (Laird S9025PR)
-f - no idea
+f - MT-242025/TRH/A (865-956 MHz)
 
 # naming convention:
 Test13[antenna]-[distance(ft)]-[angle(degrees)]
