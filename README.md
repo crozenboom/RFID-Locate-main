@@ -5,11 +5,18 @@ The purpose of this repository is to use RFID technology to estimate the locatio
 
 ## Hardware Used
 ### - Impinj R420 Reader
-### Antennas
+### - Antennas
 - Laird S9028PCLJ 9 dBic (labeled antenna 1)
 - Laird S9028PCRJ 8 dBic (labeled antenna 2)
 - Laird S8655PL ? dBic (labeled antenna 3)
 - Laird S9028PCLJ 9 dBic (labeled antenna 4)
+
+### - F to F Coaxial Cables
+### - RFID tags (various EPCs)
+
+## Software Used
+### - Speedway Connect
+https://support.atlasrfidstore.com/article/13-using-speedway-connect
 
 
 
