@@ -77,6 +77,5 @@ The purpose of this repository is to use RFID technology to estimate the locatio
 - Testing
     Holds all testing data collected during experiments
 
-## 
 
 
