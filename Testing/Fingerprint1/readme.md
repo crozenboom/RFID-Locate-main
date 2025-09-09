@@ -18,39 +18,26 @@ Antenna 4: (3, 0)
 
 ## Tag Locations:
 
-Tags were placed at 16 points on the grid, forming a 4x4 subgrid with 2 ft spacing:
+The following table maps each fingerprint test file to its corresponding location coordinates.
 
-(0, 6)
-
-(2, 6)
-
-(4, 6)
-
-(6, 6)
-
-(0, 4)
-
-(2, 4)
-
-(4, 4)
-
-(6, 4)
-
-(0, 2)
-
-(2, 2)
-
-(4, 2)
-
-(6, 2)
-
-(0, 0)
-
-(2, 0)
-
-(4, 0)
-
-(6, 0)
+| File Name           | Location |
+|---------------------|----------|
+| Fingerprint1-1.csv  | (0, 6)   |
+| Fingerprint1-2.csv  | (2, 6)   |
+| Fingerprint1-3.csv  | (4, 6)   |
+| Fingerprint1-4.csv  | (6, 6)   |
+| Fingerprint1-5.csv  | (0, 4)   |
+| Fingerprint1-6.csv  | (2, 4)   |
+| Fingerprint1-7.csv  | (4, 4)   |
+| Fingerprint1-8.csv  | (6, 4)   |
+| Fingerprint1-9.csv  | (0, 2)   |
+| Fingerprint1-10.csv | (2, 2)   |
+| Fingerprint1-11.csv | (4, 2)   |
+| Fingerprint1-12.csv | (6, 2)   |
+| Fingerprint1-13.csv | (0, 0)   |
+| Fingerprint1-14.csv | (2, 0)   |
+| Fingerprint1-15.csv | (4, 0)   |
+| Fingerprint1-16.csv | (6, 0)   |
 
 ## Data Collection:
 - HTTP Post via Speedway Connect
