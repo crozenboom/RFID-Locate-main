@@ -36,7 +36,7 @@ Tags were placed at 16 points on the grid, forming a 4x4 subgrid with 2 ft spaci
 (6, 0)
 
 ## Data Collection:
-- HTTP Post 
+- HTTP Post via Speedway Connect
 - Data Fields: 
     - antenna_port
     - epc
