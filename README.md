@@ -50,6 +50,7 @@ The purpose of this repository is to use RFID technology to estimate the locatio
     deactivate
     ```
 - sllurp (https://github.com/sllurp/sllurp)
+    
     How to Use
     1. Make sure sllurp is installed
     ```bash 
@@ -60,7 +61,7 @@ The purpose of this repository is to use RFID technology to estimate the locatio
     sllurp --help
     ```
     This will show available sllurp commands
-    
+
 - VS Code
 - MS Excel
 
