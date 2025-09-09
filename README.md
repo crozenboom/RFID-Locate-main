@@ -5,12 +5,14 @@ The purpose of this repository is to use RFID technology to estimate the locatio
 
 ## Hardware Used
 - Impinj R420 Reader
-- Antennas
+- Antennas:
     - Antenna 1: S9028PCLJ (LHCP, 902–928 MHz)
     - Antenna 2: S8658PL (RHCP, 865–868 MHz)
     - Antenna 3: S9028PCRJ (RHCP, 902–928 MHz)
     - Antenna 4: S9028PCLJ (LHCP, 902–928 MHz)
-- F to F Coaxial Cables
+- Cables:
+    - Laird P/N 092463
+    - 10 ft extension Shireen RFC 195 Low Loss 50 ohms 40/24
 - RFID tags (various EPCs)
 
 ## Software Used
