@@ -1,10 +1,10 @@
-Impact of Antenna Polarization and Frequency Band in RFID Testing
+# Impact of Antenna Polarization and Frequency Band in RFID Testing
 
 In our RFID test setup, we’re using four antennas placed in a 15x15 ft area:
-	•	Antenna 1: S9028PCLJ (LHCP, 902–928 MHz)
-	•	Antenna 2: S8658PL (RHCP, 865–868 MHz)
-	•	Antenna 3: S9028PCRJ (RHCP, 902–928 MHz)
-	•	Antenna 4: S9028PCLJ (LHCP, 902–928 MHz)
+- Antenna 1: S9028PCLJ (LHCP, 902–928 MHz)
+- Antenna 2: S8658PL (RHCP, 865–868 MHz)
+- Antenna 3: S9028PCRJ (RHCP, 902–928 MHz)
+- Antenna 4: S9028PCLJ (LHCP, 902–928 MHz)
 
 1. Polarization Mismatch (Left-Hand vs. Right-Hand Circular Polarization)
 
@@ -38,23 +38,15 @@ frequency range, which will likely cause:
 	•	Poor tag detection or total read failure
 	•	Potential signal reflections or interference artifacts across the environment
 
-Conversely, if we adjust the reader to operate in the ETSI band to accommodate Antenna 2, then Antennas 
-1, 3, and 4 — all tuned for FCC frequencies — will operate suboptimally. This mismatch introduces inconsistent 
-antenna performance and may distort our test results.
+Conversely, if we adjust the reader to operate in the ETSI band to accommodate Antenna 2, then Antennas 1, 3, and 4 — all tuned for FCC frequencies — will operate suboptimally. This mismatch introduces inconsistent antenna performance and may distort our test results.
 
 ⸻
 
 Recommendations
-	•	We should use antennas with matching circular polarization (all RHCP or all LHCP) to ensure uniform 
-    coverage. Alternatively, linearly polarized antennas could offer stronger signal strength in controlled 
-    environments with consistent tag orientation.
+- We should use antennas with matching circular polarization (all RHCP or all LHCP) to ensure uniform coverage. Alternatively linearly polarized antennas could offer stronger signal strength in controlled environments with consistent tag orientation.
     
-	•	All antennas should operate in the same regulatory frequency band (either FCC or ETSI) to avoid degraded 
-    performance.
+- All antennas should operate in the same regulatory frequency band (either FCC or ETSI) to avoid degraded performance.
 
-	•	We should continue using circularly polarized antennas with linear tags, as this provides orientation 
-    independence — ideal for our testing environment. We just need to account for the small signal loss compared 
-    to a perfectly aligned linear setup.
+- We should continue using circularly polarized antennas with linear tags, as this provides orientation independence — ideal for our testing environment. We just need to account for the small signal loss compared to a perfectly aligned linear setup.
 
-	•	Finally, we should monitor tag orientation and antenna placement closely when evaluating read patterns, 
-    to ensure we correctly attribute any performance differences.
+- Finally, we should monitor tag orientation and antenna placement closely when evaluating read patterns, to ensure we correctly attribute any performance differences.
