@@ -32,25 +32,35 @@ The purpose of this repository is to use RFID technology to estimate the locatio
     ```bash
     python3 --version
     ```
-    2. Create Virtual Environment
+    2. Create virtual environment
     ```bash
     python3 -m venv venv
     ```
-    3. Activate Virtual Environment
+    3. Activate virtual environment
     - macOS:
     ```bash
     source venv/bin/activate
     ```
-    4. Install Dependencies
+    4. Install dependencies
     ```bash
-    pip install pandas numpy fastapi pydantic uvicorn scipy matplotlib sllurp
+    pip3 install pandas numpy fastapi pydantic uvicorn scipy matplotlib sllurp
     ```
-    5. Deactivate Dependencies
+    5. Deactivate dependencies
     ```bash
     deactivate
     ```
 - sllurp (https://github.com/sllurp/sllurp)
-    How to Install
+    How to Use
+    1. Make sure sllurp is installed
+    ```bash 
+    pip show sllurp
+    ```
+    2. Using sllurp
+    ```bash
+    sllurp --help
+    ```
+    This will show available sllurp commands
+    
 - VS Code
 - MS Excel
 
