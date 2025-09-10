@@ -24,6 +24,7 @@ To calibrate the R420 reader’s RFID capabilities by measuring the signal stren
 2. (3. 6)
 3. (6, 3)
 4. (3, 0)
+- Antennas on the ground
 
 ### Tags (x, y):
 Names of the CSV correspond to their coordinates
