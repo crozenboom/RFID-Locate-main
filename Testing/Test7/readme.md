@@ -10,10 +10,11 @@ Coordinate System
 (x, y) coordinates, with (0, 0) at the bottom-left corner.
 
 ### Antennas:
-Antenna 1: (0, 7)
-Antenna 2: (7, 7)
-Antenna 3: (7, 0)
-Antenna 4: (0, 0)
+1. (0, 7)
+2. (7, 7)
+3. (7, 0)
+4. (0, 0)
+- Antennas on the ground
 
 ### Tags:
 A single RFID tag was placed at each of 16 points on a 3x3 subgrid within the 7x7 ft area, with 1 ft spacing, centered in the grid. 

@@ -14,7 +14,7 @@ Coordinate System
 2. (0, 15)
 3. (15, 15)
 4. (15, 0)
-- 
+- Antennas 4 ft off the ground
 
 ### Tags
 Names of the CSV correspond to their coordinates
@@ -32,14 +32,6 @@ Each CSV includes:
 ## Script Description
 
 CLI command sllurp log 192.168.0.219 -a 1,2,3,4 -X 0 -t 20 -r -o data.csv --impinj-reports
-
-## PROCESS
-
-- 50 reads per antenna
-- 16 grid points
-- tags were static, placed flat 3 inches above the ground, consistent with Test 6.
-Antenna Configuration: Antennas were placed on the ground at the corners of the 7x7 ft grid, pointing toward the center. Read rates vary by tag position (e.g., (2, 5) is closer to Antenna 1 at (0, 7) than Antenna 3 at (7, 0)).
-CSV Naming: Files are explicitly labeled Test7-1.csv to Test7-16.csv, mapped to grid points (2, 5) to (5, 2) for clarity.
 
 ## SAMPLE OUTPUT
 
