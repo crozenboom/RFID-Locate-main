@@ -1,6 +1,6 @@
-!! ADDED EXTENSION CABLES TO A1 & A4 !!
+# ADDED EXTENSION CABLES TO A1 & A4 
 
-# Test9-1
+## Test9-1
 - zone 1
 - zig zag
 - antenna 1 only
@@ -9,10 +9,10 @@
 - every two feet for 16 points
 - 20s on 10s off
 
-# Test9-2
+## Test9-2
 -same as Test9-1 but with all antennas
 
-# Test9-3a & b 
+## Test9-3a & b 
 - antenna 1
 - zig zag
 - antenna 1 only
@@ -21,11 +21,11 @@
 - every one foot
 - 20s on 10s off
 
-# Test9-4
+## Test9-4
 - same as Test9-3 but with all antennas
 - 9 reads (center of each "square")
 
-# Test9-5 
+## Test9-5 
 - 3 orientations
 - from antenna POV: 
     - 1: right of antenna
@@ -34,7 +34,7 @@
 - every 2 feet quad 1 and 4
 - zig zag
 
-# Test9-6
+## Test9-6
 - antenna 1 only
 - 4 steps:
     - quadrant 1 "outfield"
@@ -44,7 +44,7 @@
 - 1 foot apart
 - facing antenna 1
 
-# Test9-7
+## Test9-7
 - antenna 1 only
 - First part:
     - facing antenna
@@ -56,10 +56,10 @@
     - 3 reads beyond center (into quadrant 3)
 
 
-!! SWITCHED ANTENNA TWO AND THREE PORT !!
+# SWITCHED ANTENNA TWO AND THREE PORT 
 
 
-# Test9-8
+## Test9-8
 - all 4 antennas
 - 18 locations across quad 1 and 4
 - bottom to top (no zig zag)
@@ -69,19 +69,19 @@
     - 2: middle
     - 3: left
 
-# Test9-9
+## Test9-9
  - all antennas
  - right orientation
  - y: 1 6 8 13
  - x: a f h m
 
- # Test9-10
+ ## Test9-10
  - all antennas
  - left orientation
  - x: d g i
  - y: 5 7 9
 
- # Test9-11
+ ## Test9-11
  - all antennas
  - ALOT OF TAGS
  - 9 locations
@@ -97,5 +97,3 @@
 
 - then center floor, middle, ceiling
 - the middle of quad 1, 2, center, 3, 4 jiggled box 
-- meredith did tag reveal
-- jed stood in front of antenna 1

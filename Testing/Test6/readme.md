@@ -39,11 +39,11 @@ Each CSV includes:
 
 ## Software Requirements
 
-Python: 3.6–3.10
-sllurp: Install via pip install sllurp
-Impinj Speedway R420 RFID Reader: Configured with web interface or script parameters
-RFID Tags: UHF RFID tags compatible with the reader (e.g., EPCs 303435fc8803d056d15b963f, 300833b2ddd9014000000000)
-Network: Reader must be reachable at IP 192.168.0.219 on port 5084 (LLRP)
+- Python: 3.6–3.10
+- sllurp: Install via pip install sllurp
+- Impinj Speedway R420 RFID Reader: Configured with web interface or script parameters
+- RFID Tags: UHF RFID tags compatible with the reader (e.g., EPCs 303435fc8803d056d15b963f, 300833b2ddd9014000000000)
+- Network: Reader must be reachable at IP 192.168.0.219 on port 5084 (LLRP)
 
 ## Script Description
 The Python script (inv_sllurp.py) is a command-line application that:
