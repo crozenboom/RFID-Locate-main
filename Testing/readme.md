@@ -6,3 +6,4 @@ This folder holds all the experimental data.
 - MovementTesting contains dynamic Circle and Line tests 
 - quadTesting contains quadrant specific dynamic tests
 - Polarizationinfo is a brief overview of the impact of varying antenna types
+- Hoptable is a table matching the channel index with the corresponding frequency
