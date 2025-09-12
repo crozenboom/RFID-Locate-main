@@ -90,8 +90,9 @@ The three documents:
 - Physics Informed RFID Models
 
 are all mostly early documentation. This is to show the progression of the project overtime. These documents are outdated and should not be used for the continuation of the project, but only to show where the project has been to avoid repeated mistakes.
-**EXCEPTION**
-- Physics Informed RFID Models
+
+**EXCEPTION:**
+- **Physics Informed RFID Models**
     - Contains distance equations
     - Use RSSI path loss first
     - Then use Phase-based ranging
