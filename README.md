@@ -62,7 +62,12 @@ The purpose of this repository is to use RFID technology to estimate the locatio
     ```bash
     sllurp --help
     ```
-    This will show available sllurp commands. For more info see the readme in the Testing folder
+    This will show available sllurp commands. For more config info see /Inventory/Reader_Settings.md
+
+    3. example command:
+    ```bash
+    sllurp log 192.168.0.219 -o example.csv -t 60 -a 0 -X 0 --impinj-reports
+    ```
 
 - VS Code
 - MS Excel

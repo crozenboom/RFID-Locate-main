@@ -1,4 +1,5 @@
 # Models 
+venv contains edited sllurp. This allows sllurp log to not only post doppler frequency and phase angle, but also http post to and endpoint. Changes can be seen in /Models/venv/lib/python3.13/site-packages/sllurp/verb/log.py
 
 ## Moving Models
 ### circleModel.py
