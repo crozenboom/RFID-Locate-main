@@ -1,7 +1,7 @@
 # RFID Localization Prediction Repository
 
 ## Purpose
-The purpose of this repository is to use RFID technology to estimate the location of a RFID tag. Make sure to read Lessons Learned at the bottom.
+The purpose of this repository is to use RFID technology to estimate the location of a RFID tag. Make sure to read Lessons Learned and Physics Informaed RFID Models at the bottom.
 
 ## Hardware Used
 - Impinj R420 Reader
