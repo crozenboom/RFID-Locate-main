@@ -1,7 +1,7 @@
 # RFID Localization Prediction Repository
 
 ## Purpose
-The purpose of this repository is to use RFID technology to estimate the location of a RFID tag
+The purpose of this repository is to use RFID technology to estimate the location of a RFID tag. Make sure to read Lessons Learned at the bottom.
 
 ## Hardware Used
 - Impinj R420 Reader
@@ -87,5 +87,21 @@ The three documents:
 - Proposal for Enhanced RFID and Data Management System
 - Review of RFID system early testing
 - RFID Project Overview
+- Physics Informed RFID Models
 
 are all mostly early documentation. This is to show the progression of the project overtime. These documents are outdated and should not be used for the continuation of the project, but only to show where the project has been to avoid repeated mistakes.
+**EXCEPTION**
+- Physics Informed RFID Models
+    - Contains distance equations
+    - Use RSSI path loss first
+    - Then use Phase-based ranging
+
+## Lessons Learned
+This section is to sum up the lessons learned from this project and to hopefully promote the current prioities at the time of writing this. 
+### Successes:
+- Run inventory
+- Log data in real time
+- Configure RFID reader
+- Alternatively post to API endpoint
+- Calculate distance using RSSI in one dimension
+- 
