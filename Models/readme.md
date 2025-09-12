@@ -40,3 +40,10 @@ Designed for both static and moving RFID tags, it collects RSSI, phase, and dopp
 
 ### quadPredictTrain2.py
 Focused only on static tag localization using RSSI data. It fills missing values, normalizes features, and trains a Random Forest model to classify tag positions at predefined reference points. Outputs include the trained model and basic accuracy metrics. It’s simpler, intended for stationary tag location prediction without trajectory estimation.
+
+## Stationary Models
+### modelCompare.py
+Compares performance of Random Forest and Gradient Boosting models trained on Test 8 static data
+
+### randomForest.py
+Trains a Random Forest model on Circle Test 0

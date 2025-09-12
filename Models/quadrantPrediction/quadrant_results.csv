@@ -1,9 +1,0 @@
-# Quadrant Results
-# This file contains quadrant accuracies.
-# - Quadrant: Q1 (x<7.5, y<7.5), Q2 (x<7.5, y>=7.5), Q3 (x>=7.5, y>=7.5), Q4 (x>=7.5, y<7.5).
-# - Accuracy: Prediction accuracy for each quadrant (0 to 1).
-Quadrant,Accuracy
-Q1,0.7091988130563798
-Q2,0.9150763358778626
-Q3,0.9343082114735658
-Q4,0.7426597582037997
