@@ -77,5 +77,10 @@ The purpose of this repository is to use RFID technology to estimate the locatio
 - Testing
     Holds all testing data collected during experiments
 
+## Note on PDF Documents
+The three documents:
+- Proposal for Enhanced RFID and Data Management System
+- Review of RFID system early testing
+- RFID Project Overview
 
-
+are all mostly early documentation. This is to show the progression of the project overtime. These documents are outdated and should not be used for the continuation of the project, but only to show where the project has been to avoid repeated mistakes.
