@@ -16,3 +16,5 @@ if information is not described in readme, it can be safely assumed that it was 
 In the 15x15 grid tests the clock analogy was used to indicate paths of travel. The clcok is always viewed as if from above in the same direction as the grid. This means 12 o clock is at grid point (7,15). 
 ### Antenna Numbering
 Antennas are always numbered 1-4 and start from bottom left clockwise to bottom right around the room.
+### Hoptable
+A hoptable defines the sequence of frequencies the reader cycles through within its selected channel set. It’s used to perform frequency hopping to comply with regulatory limits, reduce interference, and improve tag read reliability in environments with multiple readers or other RF devices. Essentially, it tells the reader which channels to use and in what order during operation. 

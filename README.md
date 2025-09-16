@@ -105,4 +105,20 @@ This section is to sum up the lessons learned from this project and to hopefully
 - Configure RFID reader
 - Alternatively post to API endpoint
 - Calculate distance using RSSI in one dimension
-- 
+
+### Future Improvements
+- RSSI two dimensional localization prediction
+    - Use channel index (unique RSSI grouping per frequency)
+    - Use Kalman Filter (smoothing)
+- Figure out phase angle
+    - Use for more precise localization
+    - Find patterns in test data
+- Figure out doppler frequency
+- Better Antennas
+- No interference in testing room
+
+### Steps to Success
+- Calculate location using RSSI in 2 dimensions
+- Refine location with phase angle 
+- Reintroduce AI prediction
+
