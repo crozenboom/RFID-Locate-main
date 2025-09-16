@@ -73,14 +73,14 @@ The purpose of this repository is to use RFID technology to estimate the locatio
 - MS Excel
 
 ## Brief Description of Folders
-- Inventory
-    Mainly experimental interfacing python with sllurp or HTTP post to get reads and manipulate output.
-- Locate
-    Used for location prediction experiments using various physical methods
-- Models
-    Holds the training and application scripts for AI location prediction
-- Testing
-    Holds all testing data collected during experiments
+### Inventory
+- Mainly experimental interfacing python with sllurp or HTTP post to get reads and manipulate output.
+### Locate
+- Used for location prediction experiments using various physical methods
+### Models
+- Holds the training and application scripts for AI location prediction
+### Testing
+- Holds all testing data collected during experiments
 
 ## Note on PDF Documents
 The three documents:
